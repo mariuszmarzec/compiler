@@ -9,33 +9,35 @@ class Kompiler {
         val output = mutableListOf<Token>()
         val stack = ArrayDeque<Token>()
         exp.forEachIndexed { index, ch ->
-            printInput(output)
-            println("ch = $ch")
             when (ch) {
                 in literalHandler.allowedCharacters -> {
                     literalHandler.handleToken(exp, index, ch, output, stack)
                 }
+
                 in operatorHandler.allowedCharacters -> {
                     operatorHandler.handleToken(exp, index, ch, output, stack)
                 }
+
                 ' ' -> {
-                    // TODO handle whitespace as allowed after last one or not allowed
+                    closelastToken(output)
                 }
+
                 else -> {
                     throw IllegalArgumentException("Invalid character: `$ch` at index $index in expression: $exp")
                 }
             }
-            println(printInput(output))
         }
         while (stack.isNotEmpty()) {
             output.add(stack.removeLast())
         }
         return printInput(output)
     }
+}
 
-    private fun allowedCharacters(): List<String> =
-        (('0'..'9') + ('a'..'z') + ('A'..'Z')).map { it.toString() }
-
+private fun closelastToken(output: MutableList<Token>) {
+    output.lastOrNull()?.let { last ->
+        output[output.lastIndex] = last.copy(opened = false)
+    }
 }
 
 private fun printInput(input: MutableList<Token>): String = input.fold(StringBuilder()) { acc, item ->
@@ -45,14 +47,12 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
     acc.append(item.value)
 }.toString()
 
-interface Token {
-
-    val index: Int
-
-    val value: String
-
-    val opened: Boolean
-}
+data class Token(
+    val index: Int,
+    val value: String,
+    val opened: Boolean,
+    val type: String
+)
 
 interface TokenHandler {
 
@@ -69,7 +69,7 @@ interface TokenHandler {
 
 class OperatorHandler : TokenHandler {
     override val allowedCharacters: List<Char>
-        get() = listOf('(', ')', '+', '-', '*', '/', '%', '^')
+        get() = listOf('(', ')', '+', '−', '*', '/', '%', '^')
 
     override fun handleToken(
         exp: String,
@@ -78,29 +78,36 @@ class OperatorHandler : TokenHandler {
         output: MutableList<Token>,
         stack: ArrayDeque<Token>
     ) {
-        when(ch.toString()) {
+        println("regular Operators: ${regularOperators()}")
+        closelastToken(output)
+
+        when (ch.toString()) {
             in openingOperator() -> {
-                stack.addLast(Operator(index, ch.toString(), opened = false))
+                stack.addLast(Token(index, ch.toString(), opened = false, type = "operator"))
             }
+
             in closingOperator() -> {
                 while (stack.isNotEmpty() && stack.last().value != "(") {
                     output.add(stack.removeLast())
                 }
                 if (stack.isNotEmpty() && stack.last().value == "(") {
                     stack.removeLast() // Remove the '('
-                }
-                else {
+                } else {
                     throw IllegalArgumentException("Mismatched parentheses in expression: $exp")
                 }
             }
+
             in regularOperators() -> {
                 while (stack.isNotEmpty() && operators()["$ch"]!! <= operators()[stack.last().value]!!) {
-                    output.add(stack.removeLast())
+                    val element = stack.removeLast()
+                    println("regularOperators: $element")
+                    output.add(element)
                 }
-                stack.addLast(Operator(index, ch.toString(), opened = false))
+                stack.addLast(Token(index, ch.toString(), opened = false, type = "operator"))
             }
+
             else -> {
-                throw IllegalArgumentException("Lacking handling for operator: $ch at index $index in expression: $exp")
+                throw IllegalArgumentException("Lacking handling for Token: $ch at index $index in expression: $exp")
             }
         }
     }
@@ -110,8 +117,8 @@ class OperatorHandler : TokenHandler {
     private fun openingOperator() = listOf("(")
 
     fun operators(): Map<String, Int> = mapOf(
-        "(" to 0,
-        "-" to 0,
+        "(" to -1,
+        "−" to 0,
         "+" to 1,
         ")" to 1,
         "*" to 2,
@@ -121,7 +128,7 @@ class OperatorHandler : TokenHandler {
     )
 
     private fun regularOperators(): List<String> =
-        operators().keys.filter { it !in openingOperator() && it !in closingOperator() }
+        operators().keys.filter { it !in openingOperator() + closingOperator() }
 }
 
 class LiteralHandler : TokenHandler {
@@ -135,16 +142,11 @@ class LiteralHandler : TokenHandler {
         output: MutableList<Token>,
         stack: ArrayDeque<Token>
     ) {
-        println("allowedCharacters")
         val last = output.lastOrNull()
-        if (last is Literal) {
+        if (last != null && last.opened) {
             output[output.lastIndex] = last.copy(value = last.value + ch)
         } else {
-            output.add(Literal(index, ch.toString(), opened = false))
+            output.add(Token(index, ch.toString(), opened = true, type = "literal"))
         }
     }
 }
-
-data class Operator(override val index: Int, override val value: String, override val opened: Boolean) : Token
-
-data class Literal(override val index: Int, override val value: String, override val opened: Boolean) : Token
