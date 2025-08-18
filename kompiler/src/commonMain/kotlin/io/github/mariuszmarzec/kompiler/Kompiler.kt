@@ -3,7 +3,6 @@ package io.github.mariuszmarzec.kompiler
 class Kompiler(val handlers: List<TokenHandler>) {
 
     fun compile(exp: String): String {
-
         val output = mutableListOf<Token>()
         val stack = ArrayDeque<Token>()
         exp.forEachIndexed { index, ch ->
