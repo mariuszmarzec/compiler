@@ -1,31 +1,15 @@
 package io.github.mariuszmarzec.kompiler
 
-class Kompiler {
+class Kompiler(val handlers: List<TokenHandler>) {
 
     fun compile(exp: String): String {
-        val operatorHandler = OperatorHandler()
-        val literalHandler = LiteralHandler()
 
         val output = mutableListOf<Token>()
         val stack = ArrayDeque<Token>()
         exp.forEachIndexed { index, ch ->
-            when (ch) {
-                in literalHandler.allowedCharacters -> {
-                    literalHandler.handleToken(exp, index, ch, output, stack)
-                }
-
-                in operatorHandler.allowedCharacters -> {
-                    operatorHandler.handleToken(exp, index, ch, output, stack)
-                }
-
-                ' ' -> {
-                    closelastToken(output)
-                }
-
-                else -> {
-                    throw IllegalArgumentException("Invalid character: `$ch` at index $index in expression: $exp")
-                }
-            }
+            handlers.firstOrNull { it.allowedCharacters.contains(ch) }
+                ?.handleToken(exp, index, ch, output, stack)
+                ?: throw IllegalArgumentException("Unexpected character '$ch' at index $index in expression: $exp")
         }
         while (stack.isNotEmpty()) {
             output.add(stack.removeLast())
@@ -34,7 +18,7 @@ class Kompiler {
     }
 }
 
-private fun closelastToken(output: MutableList<Token>) {
+private fun closeLastToken(output: MutableList<Token>) {
     output.lastOrNull()?.let { last ->
         output[output.lastIndex] = last.copy(opened = false)
     }
@@ -79,11 +63,12 @@ class OperatorHandler : TokenHandler {
         stack: ArrayDeque<Token>
     ) {
         println("regular Operators: ${regularOperators()}")
-        closelastToken(output)
+        closeLastToken(output)
 
+        val newOperator = Token(index, ch.toString(), opened = false, type = "operator")
         when (ch.toString()) {
             in openingOperator() -> {
-                stack.addLast(Token(index, ch.toString(), opened = false, type = "operator"))
+                stack.addLast(newOperator)
             }
 
             in closingOperator() -> {
@@ -103,7 +88,7 @@ class OperatorHandler : TokenHandler {
                     println("regularOperators: $element")
                     output.add(element)
                 }
-                stack.addLast(Token(index, ch.toString(), opened = false, type = "operator"))
+                stack.addLast(newOperator)
             }
 
             else -> {
@@ -148,5 +133,20 @@ class LiteralHandler : TokenHandler {
         } else {
             output.add(Token(index, ch.toString(), opened = true, type = "literal"))
         }
+    }
+}
+
+class WhiteSpaceHandler : TokenHandler {
+    override val allowedCharacters: List<Char>
+        get() = listOf(' ')
+
+    override fun handleToken(
+        exp: String,
+        index: Int,
+        ch: Char,
+        output: MutableList<Token>,
+        stack: ArrayDeque<Token>
+    ) {
+        closeLastToken(output)
     }
 }
