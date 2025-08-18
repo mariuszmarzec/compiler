@@ -14,5 +14,6 @@ class KompilerTest {
         assertEquals("2 3 + 5 *", onpKompiler.compile("(2+3)*5"))
         assertEquals("2 7 + 3 / 14 3 − 4 * + 2 /", onpKompiler.compile("((2+7)/3+(14−3)*4)/2"))
         assertEquals("12 a b c * d e / + * +", onpKompiler.compile("12 + a * (b * c + d / e)"))
+        assertEquals("1 second plus", onpKompiler.compile("1 plus second"))
     }
 }

@@ -5,6 +5,7 @@ class Kompiler(val handlers: List<TokenHandler>) {
     fun compile(exp: String): String {
         val output = mutableListOf<Token>()
         val stack = ArrayDeque<Token>()
+        val currentToken
         exp.forEachIndexed { index, ch ->
             handlers.firstOrNull { it.allowedCharacters.contains(ch) }
                 ?.handleToken(exp, index, ch, output, stack)
@@ -52,7 +53,7 @@ interface TokenHandler {
 
 class OperatorHandler : TokenHandler {
     override val allowedCharacters: Set<Char>
-        get() = operators().keys.map { it[0] }.toSet()
+        get() = operators().keys.flatMap { it.split("").mapNotNull { it.firstOrNull() } }.toSet()
 
     override fun handleToken(
         exp: String,
@@ -111,6 +112,7 @@ class OperatorHandler : TokenHandler {
         "(" to -1,
         "−" to 0,
         "+" to 1,
+        "plus" to 1,
         ")" to 1,
         "*" to 2,
         "/" to 2,
