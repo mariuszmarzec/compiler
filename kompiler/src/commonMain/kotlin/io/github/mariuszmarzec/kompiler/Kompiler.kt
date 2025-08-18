@@ -40,7 +40,7 @@ data class Token(
 
 interface TokenHandler {
 
-    val allowedCharacters: List<Char>
+    val allowedCharacters: Set<Char>
 
     fun handleToken(
         exp: String,
@@ -52,8 +52,8 @@ interface TokenHandler {
 }
 
 class OperatorHandler : TokenHandler {
-    override val allowedCharacters: List<Char>
-        get() = listOf('(', ')', '+', '−', '*', '/', '%', '^')
+    override val allowedCharacters: Set<Char>
+        get() = operators().keys.map { it[0] }.toSet()
 
     override fun handleToken(
         exp: String,
@@ -62,13 +62,21 @@ class OperatorHandler : TokenHandler {
         output: MutableList<Token>,
         stack: ArrayDeque<Token>
     ) {
-        println("regular Operators: ${regularOperators()}")
         closeLastToken(output)
 
-        val newOperator = Token(index, ch.toString(), opened = false, type = "operator")
-        when (ch.toString()) {
+        val tokenOperator = Token(index, ch.toString(), opened = false, type = "operator")
+        handleOperator(tokenOperator, stack, output, exp)
+    }
+
+    private fun handleOperator(
+        tokenOperator: Token,
+        stack: ArrayDeque<Token>,
+        output: MutableList<Token>,
+        exp: String
+    ) {
+        when (tokenOperator.value) {
             in openingOperator() -> {
-                stack.addLast(newOperator)
+                stack.addLast(tokenOperator)
             }
 
             in closingOperator() -> {
@@ -83,16 +91,15 @@ class OperatorHandler : TokenHandler {
             }
 
             in regularOperators() -> {
-                while (stack.isNotEmpty() && operators()["$ch"]!! <= operators()[stack.last().value]!!) {
+                while (stack.isNotEmpty() && operators()[tokenOperator.value]!! <= operators()[stack.last().value]!!) {
                     val element = stack.removeLast()
-                    println("regularOperators: $element")
                     output.add(element)
                 }
-                stack.addLast(newOperator)
+                stack.addLast(tokenOperator)
             }
 
             else -> {
-                throw IllegalArgumentException("Lacking handling for Token: $ch at index $index in expression: $exp")
+                throw IllegalArgumentException("Lacking handling for Token: ${tokenOperator.value} at index ${tokenOperator.index} in expression: $exp")
             }
         }
     }
@@ -117,8 +124,8 @@ class OperatorHandler : TokenHandler {
 }
 
 class LiteralHandler : TokenHandler {
-    override val allowedCharacters: List<Char>
-        get() = ('0'..'9') + ('a'..'z') + ('A'..'Z')
+    override val allowedCharacters: Set<Char>
+        get() = (('0'..'9') + ('a'..'z') + ('A'..'Z')).toSet()
 
     override fun handleToken(
         exp: String,
@@ -137,8 +144,8 @@ class LiteralHandler : TokenHandler {
 }
 
 class WhiteSpaceHandler : TokenHandler {
-    override val allowedCharacters: List<Char>
-        get() = listOf(' ')
+    override val allowedCharacters: Set<Char>
+        get() = setOf(' ')
 
     override fun handleToken(
         exp: String,
