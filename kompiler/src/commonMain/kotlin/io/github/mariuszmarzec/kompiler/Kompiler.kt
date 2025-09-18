@@ -189,6 +189,7 @@ fun operators(): Map<String, Int> = mapOf(
     "plus" to 1,
     ")" to 1,
     "*" to 2,
+    "times" to 2,
     "/" to 2,
     "%" to 2,
     "^" to 3
