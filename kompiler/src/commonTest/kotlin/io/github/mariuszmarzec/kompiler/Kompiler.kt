@@ -5,7 +5,8 @@ import kotlin.test.assertEquals
 
 class KompilerTest {
 
-    val handlers = listOf(LiteralHandler(), OperatorHandler(), WhiteSpaceHandler())
+    val tokenHandlers = CompositeTokenHandler(listOf(OperatorTokenHandler()))
+    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader())
     val onpKompiler = Kompiler(handlers)
 
     @Test
