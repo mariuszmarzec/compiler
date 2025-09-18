@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class KompilerTest {
 
     val tokenHandlers = CompositeTokenHandler(listOf(OperatorTokenHandler()))
-    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader())
+    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader(tokenHandlers))
     val onpKompiler = Kompiler(handlers)
 
     @Test
@@ -15,6 +15,6 @@ class KompilerTest {
         assertEquals("2 3 + 5 *", onpKompiler.compile("(2+3)*5"))
         assertEquals("2 7 + 3 / 14 3 − 4 * + 2 /", onpKompiler.compile("((2+7)/3+(14−3)*4)/2"))
         assertEquals("12 a b c * d e / + * +", onpKompiler.compile("12 + a * (b * c + d / e)"))
-        assertEquals("1 second plus", onpKompiler.compile("1 plus second"))
+        assertEquals("1 two plus", onpKompiler.compile("1 plus two"))
     }
 }
