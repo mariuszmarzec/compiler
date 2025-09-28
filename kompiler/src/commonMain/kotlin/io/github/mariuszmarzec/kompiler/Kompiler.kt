@@ -10,6 +10,7 @@ data class AstOnp(
 
     override fun update(action: AstOnp.() -> AstOnp) {
         this.action()
+        printInput(output)
     }
 }
 
@@ -29,19 +30,20 @@ class Kompiler(private val readers: List<TokenReader<AstOnp>>, private val astBu
                 ?.readChar(exp, index, ch, ast)
                 ?: throw IllegalArgumentException("Unexpected character '$ch' at index $index in expression: $exp")
         }
+        // EOF READER
         ast.update {
+            // clear any remaining read token
+            currentReadToken?.let { readToken ->
+                output.add(readToken)
+                currentReadToken = null
+            }
+
             while (stack.isNotEmpty()) {
                 output.add(stack.removeLast())
             }
             this
         }
         return printInput(ast.value.output)
-    }
-}
-
-private fun closeLastToken(output: MutableList<Token>) {
-    output.lastOrNull()?.let { last ->
-        output[output.lastIndex] = last.copy(opened = false)
     }
 }
 
@@ -55,7 +57,6 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 data class Token(
     val index: Int,
     val value: String,
-    val opened: Boolean,
     val type: String
 )
 
@@ -86,7 +87,6 @@ class OperatorTokenHandler : TokenHandler<AstOnp> {
         return when (token.value) {
             in openingOperator() -> {
                 astState.update {
-                    removeOperatorFromOutputLast(output, token)
                     stack.addLast(token)
                     this
                 }
@@ -96,7 +96,6 @@ class OperatorTokenHandler : TokenHandler<AstOnp> {
             in closingOperator() -> {
                 var handled = false
                 astState.update {
-                    removeOperatorFromOutputLast(output, token)
                     while (stack.isNotEmpty() && stack.last().value != "(") {
                         output.add(stack.removeLast())
                     }
@@ -111,7 +110,6 @@ class OperatorTokenHandler : TokenHandler<AstOnp> {
 
             in regularOperators() -> {
                 astState.update {
-                    removeOperatorFromOutputLast(output, token)
                     while (stack.isNotEmpty() && operators()[token.value]!! <= operators()[stack.last().value]!!) {
                         val element = stack.removeLast()
                         output.add(element)
@@ -125,19 +123,6 @@ class OperatorTokenHandler : TokenHandler<AstOnp> {
             else -> {
                 false
             }
-        }
-    }
-
-    /**
-     * workaround added because in current implmentation we don't have currentReadToken variable. Instead of we have
-     * output stack, operator should be store them
-     */
-    private fun removeOperatorFromOutputLast(
-        output: MutableList<Token>,
-        token: Token
-    ) {
-        if (output.lastOrNull() == token) {
-            output.removeLast()
         }
     }
 
@@ -161,11 +146,11 @@ class OperatorReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRead
         astState: AstState<AstOnp>
     ) {
         astState.update {
-            closeLastToken(output)
+            sendCurrentTokenToOutput()
             this
         }
 
-        val tokenOperator = Token(index, ch.toString(), opened = false, type = "operator")
+        val tokenOperator = Token(index, ch.toString(), type = "operator")
         if (!tokenHandler.handleToken(tokenOperator, astState, exp)) {
             throw IllegalArgumentException("Lacking handling for Token: `${tokenOperator.value}` at index ${tokenOperator.index} in expression: $exp")
         }
@@ -184,12 +169,8 @@ class LiteralReader() : TokenReader<AstOnp> {
         astState: AstState<AstOnp>
     ) {
         astState.update {
-            val last = output.lastOrNull()
-            if (last != null && last.opened) {
-                output[output.lastIndex] = last.copy(value = last.value + ch)
-            } else {
-                output.add(Token(index, ch.toString(), opened = true, type = "literal"))
-            }
+            val readToken = currentReadToken
+            currentReadToken = readToken?.copy(value = readToken.value + ch) ?: Token(index, ch.toString(), type = "literal")
             this
         }
     }
@@ -206,13 +187,20 @@ class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRe
         ch: Char,
         astState: AstState<AstOnp>
     ) {
-        if (astState.value.output.lastOrNull()?.opened == true) {
+        val currentReadToken = astState.value.currentReadToken
+        if (currentReadToken != null) {
+
+            if (!tokenHandler.handleToken(currentReadToken, astState, exp)) {
+                // if not handled, so token is not operator, send to output as it is literal
+                astState.update {
+                    output.add(currentReadToken)
+                    this
+                }
+            }
             astState.update {
-                closeLastToken(output)
+                this.currentReadToken = null
                 this
             }
-
-            tokenHandler.handleToken(astState.value.output.last(), astState, exp)
         }
     }
 }
@@ -240,5 +228,12 @@ class CompositeTokenHandler(private val handlers: List<TokenHandler<AstOnp>>) : 
         return handlers
             .firstOrNull<TokenHandler<AstOnp>> { it.handleToken(token, astState, exp) }
             .let<TokenHandler<AstOnp>?, Boolean> { it != null }
+    }
+}
+
+fun AstOnp.sendCurrentTokenToOutput() {
+    currentReadToken?.let { readToken ->
+        output.add(readToken)
+        currentReadToken = null
     }
 }
