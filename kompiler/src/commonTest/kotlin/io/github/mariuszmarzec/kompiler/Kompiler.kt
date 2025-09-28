@@ -7,7 +7,7 @@ class KompilerTest {
 
     val tokenHandlers = CompositeTokenHandler(listOf(OperatorTokenHandler()))
     val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader(tokenHandlers))
-    val onpKompiler = Kompiler(handlers)
+    val onpKompiler = Kompiler(handlers, { AstOnp() })
 
     @Test
     fun onpTest() {
