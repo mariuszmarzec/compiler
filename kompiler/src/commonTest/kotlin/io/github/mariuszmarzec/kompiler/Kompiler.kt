@@ -1,13 +1,12 @@
 package io.github.mariuszmarzec.kompiler
 
+import io.github.mariuszmarzec.onp.onpKompiler
 import org.junit.Test
 import kotlin.test.assertEquals
 
 class KompilerTest {
 
-    val tokenHandlers = OperatorsTokenHandler<AstOnp>(onpTokensHandlers)
-    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader(tokenHandlers))
-    val onpKompiler = Kompiler(handlers, { AstOnp() })
+    val onpKompiler = onpKompiler()
 
     @Test
     fun onpTest() {
