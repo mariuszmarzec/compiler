@@ -74,10 +74,17 @@ interface TokenReader<AST> {
 
 interface TokenHandler<AST> {
 
+    val operator: Operator
+
     fun handleToken(token: Token, ast: AstState<AST>, exp: String): Boolean
 }
 
-class OperatorsTokenHandler<T>(private val handlers: List<TokenHandler<T>>) : TokenHandler<T> {
+class OperatorsTokenHandler<T>(
+    private val handlers: List<TokenHandler<T>>,
+) : TokenHandler<T> {
+
+    override val operator: Operator
+        get() = throw IllegalAccessError("Not supported")
 
     override fun handleToken(
         token: Token,
@@ -86,19 +93,50 @@ class OperatorsTokenHandler<T>(private val handlers: List<TokenHandler<T>>) : To
     ): Boolean = handlers.firstOrNull { it.handleToken(token, astState, exp) }?.let { true } == true
 }
 
-val onpTokensHandlers: List<TokenHandler<AstOnp>> = listOf(
-    OpeningParenthesisOnpTokenHandler(),
-    ClosingParenthesisOnpTokenHandler(),
-    RegularOperatorOnpTokenHandler(),
+val operators: List<Operator> = listOf(
+    Operator("(", -1),
+    Operator("−", 0),
+    Operator("+", 1),
+    Operator("plus", 1),
+    Operator(")", 1),
+    Operator("*", 2),
+    Operator("times", 2),
+    Operator("/", 2),
+    Operator("%", 2),
+    Operator("^", 3),
 )
 
-class OpeningParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
+val operatorsMap: Map<String, Operator> = operators.associateBy { it.symbol }
+
+val onpTokensHandlers: List<TokenHandler<AstOnp>> = operatorHandlers().values.toList()
+
+fun operatorHandlers() = mapOf(
+    "(" to OpeningParenthesisOnpTokenHandler(operatorsMap.getValue("(")),
+    "−" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("−")),
+    "+" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("+")),
+    "plus" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("plus")),
+    ")" to ClosingParenthesisOnpTokenHandler(operatorsMap.getValue(")")),
+    "*" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("*")),
+    "times" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("times")),
+    "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
+    "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
+    "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
+)
+
+data class Operator(
+    val symbol: String,
+    val priority: Int
+)
+
+class OpeningParenthesisOnpTokenHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
 
     override fun handleToken(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == "(") {
+    ): Boolean = if (token.value == operator.symbol) {
         astState.update {
             stack.addLast(token)
             this
@@ -109,13 +147,15 @@ class OpeningParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
     }
 }
 
-class ClosingParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
+class ClosingParenthesisOnpTokenHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
 
     override fun handleToken(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == ")") {
+    ): Boolean = if (token.value == operator.symbol) {
         var handled = false
         astState.update {
             while (stack.isNotEmpty() && stack.last().value != "(") {
@@ -133,15 +173,19 @@ class ClosingParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
     }
 }
 
-class RegularOperatorOnpTokenHandler : TokenHandler<AstOnp> {
+class RegularOperatorOnpTokenHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+
+    private val operators: Map<String, Operator> = operatorsMap
 
     override fun handleToken(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value in regularOperators()) {
+    ): Boolean = if (token.value == operator.symbol) {
         astState.update {
-            while (stack.isNotEmpty() && operators()[token.value]!! <= operators()[stack.last().value]!!) {
+            while (stack.isNotEmpty() && operator.priority <= operators.getValue(stack.last().value).priority) {
                 val element = stack.removeLast()
                 output.add(element)
             }
@@ -152,15 +196,12 @@ class RegularOperatorOnpTokenHandler : TokenHandler<AstOnp> {
     } else {
         false
     }
-
-    private fun regularOperators(): List<String> =
-        operators().keys.filter { it !in listOf("(", ")") }
 }
 
 class OperatorReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenReader<AstOnp> {
 
     override val allowedCharacters: Set<Char>
-        get() = operators().keys.flatMap { it.split("").mapNotNull { it.firstOrNull() } }.toSet()
+        get() = operatorHandlers().keys.flatMap { it.split("").mapNotNull { it.firstOrNull() } }.toSet()
 
     override fun readChar(
         exp: String,
@@ -229,18 +270,6 @@ class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRe
     }
 }
 
-fun operators(): Map<String, Int> = mapOf(
-    "(" to -1,
-    "−" to 0,
-    "+" to 1,
-    "plus" to 1,
-    ")" to 1,
-    "*" to 2,
-    "times" to 2,
-    "/" to 2,
-    "%" to 2,
-    "^" to 3
-)
 
 fun AstOnp.sendCurrentTokenToOutput() {
     currentReadToken?.let { readToken ->
