@@ -4,7 +4,7 @@ data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<Token> = ArrayDeque<Token>(),
     var currentReadToken: Token? = null,
-): AstState<AstOnp> {
+) : AstState<AstOnp> {
 
     override val value: AstOnp = this
 
@@ -77,61 +77,84 @@ interface TokenHandler<AST> {
     fun handleToken(token: Token, ast: AstState<AST>, exp: String): Boolean
 }
 
-class OperatorTokenHandler : TokenHandler<AstOnp> {
+class OperatorsTokenHandler<T>(private val handlers: List<TokenHandler<T>>) : TokenHandler<T> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<T>,
+        exp: String,
+    ): Boolean = handlers.firstOrNull { it.handleToken(token, astState, exp) }?.let { true } == true
+}
+
+val onpTokensHandlers: List<TokenHandler<AstOnp>> = listOf(
+    OpeningParenthesisOnpTokenHandler(),
+    ClosingParenthesisOnpTokenHandler(),
+    RegularOperatorOnpTokenHandler(),
+)
+
+class OpeningParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
 
     override fun handleToken(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean {
-        return when (token.value) {
-            in openingOperator() -> {
-                astState.update {
-                    stack.addLast(token)
-                    this
-                }
-                true
-            }
-
-            in closingOperator() -> {
-                var handled = false
-                astState.update {
-                    while (stack.isNotEmpty() && stack.last().value != "(") {
-                        output.add(stack.removeLast())
-                    }
-                    if (stack.isNotEmpty() && stack.last().value == "(") {
-                        stack.removeLast() // Remove the '('
-                        handled = true
-                    }
-                    this
-                }
-                handled || throw IllegalArgumentException("Mismatched parentheses in expression: $exp")
-            }
-
-            in regularOperators() -> {
-                astState.update {
-                    while (stack.isNotEmpty() && operators()[token.value]!! <= operators()[stack.last().value]!!) {
-                        val element = stack.removeLast()
-                        output.add(element)
-                    }
-                    stack.addLast(token)
-                    this
-                }
-                true
-            }
-
-            else -> {
-                false
-            }
+    ): Boolean = if (token.value == "(") {
+        astState.update {
+            stack.addLast(token)
+            this
         }
+        true
+    } else {
+        false
+    }
+}
+
+class ClosingParenthesisOnpTokenHandler : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == ")") {
+        var handled = false
+        astState.update {
+            while (stack.isNotEmpty() && stack.last().value != "(") {
+                output.add(stack.removeLast())
+            }
+            if (stack.isNotEmpty() && stack.last().value == "(") {
+                stack.removeLast() // Remove the '('
+                handled = true
+            }
+            this
+        }
+        handled || throw IllegalArgumentException("Mismatched parentheses in expression: $exp")
+    } else {
+        false
+    }
+}
+
+class RegularOperatorOnpTokenHandler : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value in regularOperators()) {
+        astState.update {
+            while (stack.isNotEmpty() && operators()[token.value]!! <= operators()[stack.last().value]!!) {
+                val element = stack.removeLast()
+                output.add(element)
+            }
+            stack.addLast(token)
+            this
+        }
+        true
+    } else {
+        false
     }
 
-    private fun closingOperator() = listOf(")")
-
-    private fun openingOperator() = listOf("(")
-
     private fun regularOperators(): List<String> =
-        operators().keys.filter { it !in openingOperator() + closingOperator() }
+        operators().keys.filter { it !in listOf("(", ")") }
 }
 
 class OperatorReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenReader<AstOnp> {
@@ -170,7 +193,8 @@ class LiteralReader() : TokenReader<AstOnp> {
     ) {
         astState.update {
             val readToken = currentReadToken
-            currentReadToken = readToken?.copy(value = readToken.value + ch) ?: Token(index, ch.toString(), type = "literal")
+            currentReadToken =
+                readToken?.copy(value = readToken.value + ch) ?: Token(index, ch.toString(), type = "literal")
             this
         }
     }
@@ -217,19 +241,6 @@ fun operators(): Map<String, Int> = mapOf(
     "%" to 2,
     "^" to 3
 )
-
-class CompositeTokenHandler(private val handlers: List<TokenHandler<AstOnp>>) : TokenHandler<AstOnp> {
-
-    override fun handleToken(
-        token: Token,
-        astState: AstState<AstOnp>,
-        exp: String
-    ): Boolean {
-        return handlers
-            .firstOrNull<TokenHandler<AstOnp>> { it.handleToken(token, astState, exp) }
-            .let<TokenHandler<AstOnp>?, Boolean> { it != null }
-    }
-}
 
 fun AstOnp.sendCurrentTokenToOutput() {
     currentReadToken?.let { readToken ->
