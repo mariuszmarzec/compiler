@@ -152,6 +152,7 @@ class RegularOperatorOnpTokenHandler(
                 output.add(element)
             }
             stack.addLast(token)
+            currentReadToken = null
             this
         }
         true
@@ -174,14 +175,19 @@ class OperatorReader(
         ch: Char,
         astState: AstState<AstOnp>
     ) {
+        val tokenOperator = Token(index, ch.toString(), type = "operator")
         astState.update {
             sendCurrentTokenToOutput()
+            currentReadToken = tokenOperator
             this
         }
 
-        val tokenOperator = Token(index, ch.toString(), type = "operator")
         if (!tokenHandler.handleToken(tokenOperator, astState, exp)) {
             compileReport.error("Lacking handling for Token: `${tokenOperator.value}` at index ${tokenOperator.index} in expression: $exp")
+        }
+        astState.update {
+            currentReadToken = null
+            this
         }
     }
 }
