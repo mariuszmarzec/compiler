@@ -1,5 +1,8 @@
 package io.github.mariuszmarzec.kompiler
 
+import io.github.mariuszmarzec.logger.CompileReport
+
+val globalCompileReport: CompileReport = CompileReport()
 
 interface AstState<T> {
 
@@ -13,7 +16,8 @@ interface AstState<T> {
 class Kompiler<AST>(
     private val readers: List<TokenReader<AST>>,
     private val astBuilder: () -> AstState<AST>,
-    private val finisher: (AstState<AST>) -> AstState<AST> = { it }
+    private val compileReport: CompileReport,
+    private val finisher: (AstState<AST>) -> AstState<AST> = { it },
 ) {
 
     fun compile(exp: String): String {
@@ -21,7 +25,7 @@ class Kompiler<AST>(
         exp.forEachIndexed { index, ch ->
             readers.firstOrNull { it.allowedCharacters.contains(ch) }
                 ?.readChar(exp, index, ch, ast)
-                ?: throw IllegalArgumentException("Unexpected character '$ch' at index $index in expression: $exp")
+                ?: compileReport.error("Unexpected character '$ch' at index $index in expression: $exp")
         }
         // EOF READER
         ast = finisher(ast)

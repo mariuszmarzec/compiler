@@ -7,6 +7,8 @@ import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
+import io.github.mariuszmarzec.kompiler.globalCompileReport
+import io.github.mariuszmarzec.logger.CompileReport
 
 val operators: List<Operator> = listOf(
     Operator("(", -1),
@@ -65,8 +67,8 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 
 fun onpKompiler(): Kompiler<AstOnp> {
     val tokenHandlers = OperatorsTokenHandler<AstOnp>(onpTokensHandlers)
-    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers), WhiteSpaceReader(tokenHandlers))
-    return Kompiler<AstOnp>(handlers, { AstOnp() }) { ast ->
+    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, globalCompileReport), WhiteSpaceReader(tokenHandlers))
+    return Kompiler<AstOnp>(handlers, { AstOnp() }, globalCompileReport) { ast ->
         ast.update {
             // clear any remaining read token
             currentReadToken?.let { readToken ->
@@ -104,6 +106,7 @@ class OpeningParenthesisOnpTokenHandler(
 
 class ClosingParenthesisOnpTokenHandler(
     override val operator: Operator,
+    private val compileReport: CompileReport = globalCompileReport,
 ) : TokenHandler<AstOnp> {
 
     override fun handleToken(
@@ -122,7 +125,11 @@ class ClosingParenthesisOnpTokenHandler(
             }
             this
         }
-        handled || throw IllegalArgumentException("Mismatched parentheses in expression: $exp")
+        handled.also {
+            if (!it) {
+                compileReport.error("Mismatched parentheses at index ${token.index} in expression: $exp")
+            }
+        }
     } else {
         false
     }
@@ -153,7 +160,10 @@ class RegularOperatorOnpTokenHandler(
     }
 }
 
-class OperatorReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenReader<AstOnp> {
+class OperatorReader(
+    private val tokenHandler: TokenHandler<AstOnp>,
+    private val compileReport: CompileReport
+) : TokenReader<AstOnp> {
 
     override val allowedCharacters: Set<Char>
         get() = operatorHandlers().keys.flatMap { it.split("").mapNotNull { it.firstOrNull() } }.toSet()
@@ -171,7 +181,7 @@ class OperatorReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRead
 
         val tokenOperator = Token(index, ch.toString(), type = "operator")
         if (!tokenHandler.handleToken(tokenOperator, astState, exp)) {
-            throw IllegalArgumentException("Lacking handling for Token: `${tokenOperator.value}` at index ${tokenOperator.index} in expression: $exp")
+            compileReport.error("Lacking handling for Token: `${tokenOperator.value}` at index ${tokenOperator.index} in expression: $exp")
         }
     }
 }
