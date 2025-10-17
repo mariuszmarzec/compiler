@@ -12,7 +12,7 @@ import io.github.mariuszmarzec.logger.CompileReport
 
 val operators: List<Operator> = listOf(
     Operator("(", -1),
-    Operator("−", 0),
+    Operator("-", 0),
     Operator("+", 1),
     Operator("plus", 1),
     Operator(")", 1),
@@ -29,7 +29,7 @@ val onpTokensHandlers: List<TokenHandler<AstOnp>> = operatorHandlers().values.to
 
 fun operatorHandlers() = mapOf(
     "(" to OpeningParenthesisOnpTokenHandler(operatorsMap.getValue("(")),
-    "−" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("−")),
+    "-" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("-")),
     "+" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("+")),
     "plus" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("plus")),
     ")" to ClosingParenthesisOnpTokenHandler(operatorsMap.getValue(")")),
