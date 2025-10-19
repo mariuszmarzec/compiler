@@ -74,5 +74,6 @@ class OperatorsTokenHandler<T>(
 
 data class Operator(
     val symbol: String,
-    val priority: Int
+    val priority: Int,
+    val openClose: Boolean = false,
 )

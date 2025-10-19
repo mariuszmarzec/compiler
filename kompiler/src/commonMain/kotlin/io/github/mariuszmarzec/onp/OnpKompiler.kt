@@ -11,11 +11,11 @@ import io.github.mariuszmarzec.kompiler.globalCompileReport
 import io.github.mariuszmarzec.logger.CompileReport
 
 val operators: List<Operator> = listOf(
-    Operator("(", -1),
+    Operator("(", -1, openClose = true),
     Operator("-", 0),
     Operator("+", 1),
     Operator("plus", 1),
-    Operator(")", 1),
+    Operator(")", 1, openClose = true),
     Operator("*", 2),
     Operator("times", 2),
     Operator("/", 2),
@@ -77,7 +77,11 @@ fun onpKompiler(): Kompiler<AstOnp> {
             }
 
             while (stack.isNotEmpty()) {
-                output.add(stack.removeLast())
+                val token = stack.removeLast()
+                if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
+                    globalCompileReport.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                }
+                output.add(token)
             }
             this
         }
