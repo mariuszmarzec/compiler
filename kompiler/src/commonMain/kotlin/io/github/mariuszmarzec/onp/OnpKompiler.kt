@@ -9,6 +9,7 @@ import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
 import io.github.mariuszmarzec.kompiler.globalCompileReport
 import io.github.mariuszmarzec.logger.CompileReport
+import kotlin.math.pow
 
 val operators: List<Operator> = listOf(
     Operator("(", -1, openClose = true),
@@ -46,6 +47,9 @@ data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<Token> = ArrayDeque<Token>(),
     var currentReadToken: Token? = null,
+    // Shunting Yard specific
+    val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
+    var operatorsStack: ArrayDeque<Token> = ArrayDeque<Token>(),
 ) : AstState<AstOnp> {
 
     override val value: AstOnp = this
@@ -73,6 +77,7 @@ fun onpKompiler(): Kompiler<AstOnp> {
             // clear any remaining read token
             currentReadToken?.let { readToken ->
                 output.add(readToken)
+                createNewProcessableSimpleNode(readToken)
                 currentReadToken = null
             }
 
@@ -83,10 +88,36 @@ fun onpKompiler(): Kompiler<AstOnp> {
                 }
                 output.add(token)
             }
+            
+            // shunting yard specific
+            while (operatorsStack.isNotEmpty()) {
+                val token = operatorsStack.removeLast()
+                if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
+                    globalCompileReport.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                }
+                makeProcessableNode(token)
+            }
             this
+        }
+
+        try {
+            println("Output value: ${ast.value.processableStack.last().run()}")
+        } catch (e: Exception) {
+            globalCompileReport.warning("Error while evaluating expression: ${e.message}")
         }
         ast
     }
+}
+
+private fun AstOnp.makeProcessableNode() {
+    makeProcessableNode(operatorsStack.removeLast())
+}
+
+private fun AstOnp.makeProcessableNode(token: Token) {
+    val right = processableStack.removeLast()
+    val left = processableStack.removeLast()
+    val expression = Expression(operatorsMap.getValue(token.value), left, right)
+    processableStack.addLast(expression)
 }
 
 class OpeningParenthesisOnpTokenHandler(
@@ -100,6 +131,8 @@ class OpeningParenthesisOnpTokenHandler(
     ): Boolean = if (token.value == operator.symbol) {
         astState.update {
             stack.addLast(token)
+
+            operatorsStack.addLast(token)
             this
         }
         true
@@ -126,6 +159,14 @@ class ClosingParenthesisOnpTokenHandler(
             if (stack.isNotEmpty() && stack.last().value == "(") {
                 stack.removeLast() // Remove the '('
                 handled = true
+            }
+
+            // shunting yard specific
+            while (operatorsStack.isNotEmpty() && operatorsStack.last().value != "(") {
+                makeProcessableNode()
+            }
+            if (operatorsStack.isNotEmpty() && operatorsStack.last().value == "(") {
+                operatorsStack.removeLast() // Remove the '('
             }
             this
         }
@@ -158,6 +199,13 @@ class RegularOperatorOnpTokenHandler(
             stack.addLast(token)
             currentReadToken = null
             this
+
+            while (operatorsStack.isNotEmpty() && operator.priority <= operators.getValue(operatorsStack.last().value).priority) {
+                makeProcessableNode()
+            }
+            operatorsStack.addLast(token)
+            currentReadToken = null
+            this
         }
         true
     } else {
@@ -181,8 +229,12 @@ class OperatorReader(
     ) {
         val tokenOperator = Token(index, ch.toString(), type = "operator")
         astState.update {
+            val forShuntingYardToken = currentReadToken
             sendCurrentTokenToOutput()
+
             currentReadToken = tokenOperator
+
+            createNewProcessableSimpleNode(forShuntingYardToken)
             this
         }
 
@@ -193,6 +245,14 @@ class OperatorReader(
             currentReadToken = null
             this
         }
+    }
+}
+
+private fun AstOnp.createNewProcessableSimpleNode(forShuntingYardToken: Token?) {
+    if (forShuntingYardToken != null) {
+        processableStack.addLast(
+            forShuntingYardToken.value.toIntOrNull()?.let { Primitive(it) } ?: Variable(forShuntingYardToken.value)
+        )
     }
 }
 
@@ -234,6 +294,8 @@ class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRe
                 // if not handled, so token is not operator, send to output as it is literal
                 astState.update {
                     output.add(currentReadToken)
+
+                    createNewProcessableSimpleNode(currentReadToken)
                     this
                 }
             }
@@ -251,4 +313,44 @@ fun AstOnp.sendCurrentTokenToOutput() {
         output.add(readToken)
         currentReadToken = null
     }
+}
+
+interface Processable {
+
+    fun run(): Any
+}
+
+data class Primitive(val value: Int) : Processable {
+
+    override fun run(): Any = value
+}
+
+data class Expression(val operator: Operator, val left: Processable, val right: Processable) : Processable {
+
+    override fun run(): Any {
+        val leftValue = left.run()
+        val rightValue = right.run()
+        return if (leftValue is Int && rightValue is Int) {
+            runOperation(leftValue, rightValue)
+        } else {
+            "($leftValue ${operator.symbol} $rightValue)"
+        }
+    }
+
+    private fun runOperation(left: Int, right: Int): Any {
+        return when (operator.symbol) {
+            "+" , "plus" -> left + right
+            "-" -> left - right
+            "*" , "times" -> left * right
+            "/" -> left / right
+            "%" -> left % right
+            "^" -> left.toDouble().pow(right.toDouble()).toInt()
+            else -> throw IllegalStateException("Unknown operator: ${operator.symbol}")
+        }
+    }
+}
+
+data class Variable(val name: String) : Processable {
+
+    override fun run(): Any = name
 }
