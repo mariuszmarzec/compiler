@@ -101,11 +101,10 @@ fun onpKompiler(): Kompiler<AstOnp> {
         }
 
         try {
-            println("Output value: ${ast.value.processableStack.last().run()}")
         } catch (e: Exception) {
             globalCompileReport.warning("Error while evaluating expression: ${e.message}")
         }
-        ast
+        ast.value.processableStack.last().run().toString()
     }
 }
 

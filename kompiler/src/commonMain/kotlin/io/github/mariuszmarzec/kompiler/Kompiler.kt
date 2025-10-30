@@ -17,20 +17,21 @@ class Kompiler<AST>(
     private val readers: List<TokenReader<AST>>,
     private val astBuilder: () -> AstState<AST>,
     private val compileReport: CompileReport,
-    private val finisher: (AstState<AST>) -> AstState<AST> = { it },
+    private val finisher: (AstState<AST>) -> String = { "0" },
 ) {
 
-    fun compile(exp: String): String {
-        var ast = astBuilder()
-        exp.forEachIndexed { index, ch ->
-            readers.firstOrNull { it.allowedCharacters.contains(ch) }
-                ?.readChar(exp, index, ch, ast)
-                ?: compileReport.error("Unexpected character '$ch' at index $index in expression: $exp")
+    fun compile(exp: String): String =
+        try {
+            var ast = astBuilder()
+            exp.forEachIndexed { index, ch ->
+                readers.firstOrNull { it.allowedCharacters.contains(ch) }
+                    ?.readChar(exp, index, ch, ast)
+                    ?: compileReport.error("Unexpected character '$ch' at index $index in expression: $exp")
+            }
+            finisher(ast)
+        } catch (_: Throwable) {
+            "-1"
         }
-        // EOF READER
-        ast = finisher(ast)
-        return ast.print()
-    }
 }
 
 data class Token(
