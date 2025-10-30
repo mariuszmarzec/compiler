@@ -11,17 +11,29 @@ interface AstState<T> {
 
     fun update(action: T.() -> T)
 
-    fun print(): String
+    fun run(): String
 }
+
+class FailAstState<T> : AstState<T> {
+    override val value: T
+        get() = throw IllegalAccessError("Not supported")
+
+    override fun update(action: T.() -> T) {
+        // no op
+    }
+
+    override fun run(): String = "-1"
+}
+
 
 class Kompiler<AST>(
     private val readers: List<TokenReader<AST>>,
     private val astBuilder: () -> AstState<AST>,
     private val compileReport: Report,
-    private val finisher: (AstState<AST>) -> String = { "0" },
+    private val finisher: (AstState<AST>) -> AstState<AST> = { FailAstState() },
 ) {
 
-    fun compile(exp: String): String =
+    fun compile(exp: String): AstState<AST> =
         try {
             var ast = astBuilder()
             exp.forEachIndexed { index, ch ->
@@ -32,7 +44,7 @@ class Kompiler<AST>(
             finisher(ast)
         } catch (t: Throwable) {
             compileReport.warning("Error while evaluating expression: ${t.message}")
-            "-1"
+            FailAstState()
         }
 }
 
@@ -75,8 +87,20 @@ class OperatorsTokenHandler<T>(
     ): Boolean = handlers.firstOrNull { it.handleToken(token, astState, exp) }?.let { true } == true
 }
 
+sealed interface Operation {
+    val symbol: String
+    val priority: Int
+}
+
 data class Operator(
-    val symbol: String,
-    val priority: Int,
+    override val symbol: String,
+    override val priority: Int,
     val openClose: Boolean = false,
-)
+) : Operation
+
+data class Function(
+    override val symbol: String,
+    override val priority: Int,
+    val argumentsCount: Int,
+    val arguments: List<Int>,
+) : Operation

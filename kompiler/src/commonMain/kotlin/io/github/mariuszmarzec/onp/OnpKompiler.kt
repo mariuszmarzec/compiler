@@ -2,6 +2,7 @@ package io.github.mariuszmarzec.onp
 
 import io.github.mariuszmarzec.kompiler.AstState
 import io.github.mariuszmarzec.kompiler.Kompiler
+import io.github.mariuszmarzec.kompiler.Operation
 import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
 import io.github.mariuszmarzec.kompiler.Token
@@ -12,7 +13,7 @@ import io.github.mariuszmarzec.logger.CompileReport
 import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
-val operators: List<Operator> = listOf(
+fun operators(): List<Operator> = listOf(
     Operator("(", -1, openClose = true),
     Operator("-", 0),
     Operator("+", 1),
@@ -25,22 +26,23 @@ val operators: List<Operator> = listOf(
     Operator("^", 3),
 )
 
-val operatorsMap: Map<String, Operator> = operators.associateBy { it.symbol }
+fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
 
-val onpTokensHandlers: List<TokenHandler<AstOnp>> = operatorHandlers().values.toList()
-
-fun operatorHandlers() = mapOf(
-    "(" to OpeningParenthesisOnpTokenHandler(operatorsMap.getValue("(")),
-    "-" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("-")),
-    "+" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("+")),
-    "plus" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("plus")),
-    ")" to ClosingParenthesisOnpTokenHandler(operatorsMap.getValue(")")),
-    "*" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("*")),
-    "times" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("times")),
-    "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
-    "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
-    "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
-)
+fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
+    val operatorsMap = operatorsMap()
+    return mapOf(
+        "(" to OpeningParenthesisOnpTokenHandler(operatorsMap.getValue("(")),
+        "-" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("-")),
+        "+" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("+")),
+        "plus" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("plus")),
+        ")" to ClosingParenthesisOnpTokenHandler(operatorsMap.getValue(")")),
+        "*" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("*")),
+        "times" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("times")),
+        "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
+        "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
+        "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
+    )
+}
 
 
 data class AstOnp(
@@ -50,16 +52,19 @@ data class AstOnp(
     // Shunting Yard specific
     val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
     var operatorsStack: ArrayDeque<Token> = ArrayDeque<Token>(),
+    val operators: MutableList<Operation> = operators().toMutableList(),
+    val operations: MutableMap<String, Operation> = operatorsMap().toMutableMap()
 ) : AstState<AstOnp> {
 
     override val value: AstOnp = this
 
     override fun update(action: AstOnp.() -> AstOnp) {
         this.action()
-        printInput(output)
     }
 
-    override fun print(): String = printInput(output)
+    override fun run(): String = value.processableStack.last().run().toString()
+
+    fun intermediate(): String = printInput(output)
 }
 
 private fun printInput(input: MutableList<Token>): String = input.fold(StringBuilder()) { acc, item ->
@@ -70,7 +75,7 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 }.toString()
 
 fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
-    val tokenHandlers = OperatorsTokenHandler<AstOnp>(onpTokensHandlers)
+    val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList())
     val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, report), WhiteSpaceReader(tokenHandlers))
     return Kompiler<AstOnp>(handlers, { AstOnp() }, report) { ast ->
         ast.update {
@@ -83,7 +88,7 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
 
             while (stack.isNotEmpty()) {
                 val token = stack.removeLast()
-                if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
+                if ((operators.firstOrNull { token.value == it.symbol } as? Operator)?.openClose == true) {
                     report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 output.add(token)
@@ -92,14 +97,14 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
             // shunting yard specific
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
-                if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
+                if ((operators.firstOrNull { token.value == it.symbol } as? Operator)?.openClose == true) {
                     report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 makeProcessableNode(token)
             }
             this
         }
-        ast.value.processableStack.last().run().toString()
+        ast
     }
 }
 
@@ -113,7 +118,7 @@ private fun AstOnp.makeProcessableNode(token: Token) {
     }
     val right = processableStack.removeLast()
     val left = processableStack.removeLast()
-    val expression = Expression(operatorsMap.getValue(token.value), left, right)
+    val expression = Expression(operations.getValue(token.value), left, right)
     processableStack.addLast(expression)
 }
 
@@ -181,15 +186,13 @@ class RegularOperatorOnpTokenHandler(
     override val operator: Operator,
 ) : TokenHandler<AstOnp> {
 
-    private val operators: Map<String, Operator> = operatorsMap
-
     override fun handleToken(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
     ): Boolean = if (token.value == operator.symbol) {
         astState.update {
-            while (stack.isNotEmpty() && operator.priority <= operators.getValue(stack.last().value).priority) {
+            while (stack.isNotEmpty() && operator.priority <= operations.getValue(stack.last().value).priority) {
                 val element = stack.removeLast()
                 output.add(element)
             }
@@ -197,7 +200,7 @@ class RegularOperatorOnpTokenHandler(
             currentReadToken = null
             this
 
-            while (operatorsStack.isNotEmpty() && operator.priority <= operators.getValue(operatorsStack.last().value).priority) {
+            while (operatorsStack.isNotEmpty() && operator.priority <= operations.getValue(operatorsStack.last().value).priority) {
                 makeProcessableNode()
             }
             operatorsStack.addLast(token)
@@ -322,7 +325,7 @@ data class Primitive(val value: Int) : Processable {
     override fun run(): Any = value
 }
 
-data class Expression(val operator: Operator, val left: Processable, val right: Processable) : Processable {
+data class Expression(val operator: Operation, val left: Processable, val right: Processable) : Processable {
 
     override fun run(): Any {
         val leftValue = left.run()

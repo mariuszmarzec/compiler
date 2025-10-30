@@ -55,7 +55,7 @@ fun App() {
                     logger = ConsoleLogger()
                 )
                 val kompiler = onpKompiler(CompileReport(logger))
-                val result = kompiler.compile(text)
+                val result = kompiler.compile(text).run()
                 output += "Program output: $result\n"
             }) {
                 Text("Compile")
