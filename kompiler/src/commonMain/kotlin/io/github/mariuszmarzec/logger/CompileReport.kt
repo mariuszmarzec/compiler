@@ -1,13 +1,19 @@
 package io.github.mariuszmarzec.logger
 
-class CompileReport {
+interface Report {
+    fun warning(message: String)
+    fun error(message: String)
+}
 
-    fun warning(message: String) {
-        println("W: $message")
+class CompileReport(private val logger: Logger = ConsoleLogger()) : Report {
+
+    override fun warning(message: String) {
+        logger.log("W: $message")
     }
 
-    fun error(message: String) {
-        println("E: $message")
+    override fun error(message: String) {
+        logger.log("E: $message")
         throw IllegalStateException(message)
     }
 }
+

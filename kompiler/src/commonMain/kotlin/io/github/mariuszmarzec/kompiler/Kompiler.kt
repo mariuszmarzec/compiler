@@ -1,6 +1,7 @@
 package io.github.mariuszmarzec.kompiler
 
 import io.github.mariuszmarzec.logger.CompileReport
+import io.github.mariuszmarzec.logger.Report
 
 val globalCompileReport: CompileReport = CompileReport()
 
@@ -16,7 +17,7 @@ interface AstState<T> {
 class Kompiler<AST>(
     private val readers: List<TokenReader<AST>>,
     private val astBuilder: () -> AstState<AST>,
-    private val compileReport: CompileReport,
+    private val compileReport: Report,
     private val finisher: (AstState<AST>) -> String = { "0" },
 ) {
 
@@ -29,7 +30,8 @@ class Kompiler<AST>(
                     ?: compileReport.error("Unexpected character '$ch' at index $index in expression: $exp")
             }
             finisher(ast)
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            compileReport.warning("Error while evaluating expression: ${t.message}")
             "-1"
         }
 }

@@ -23,6 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.mariuszmarzec.logger.CompileReport
+import io.github.mariuszmarzec.logger.ConsoleLogger
+import io.github.mariuszmarzec.logger.InterceptingLogger
 import io.github.mariuszmarzec.onp.onpKompiler
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -47,7 +50,12 @@ fun App() {
 
             Button(onClick = {
                 output = ""
-                val result = onpKompiler().compile(text)
+                val logger = InterceptingLogger(
+                    logAction = { output += "$it\n" },
+                    logger = ConsoleLogger()
+                )
+                val kompiler = onpKompiler(CompileReport(logger))
+                val result = kompiler.compile(text)
                 output += "Program output: $result\n"
             }) {
                 Text("Compile")

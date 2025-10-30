@@ -9,6 +9,7 @@ import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
 import io.github.mariuszmarzec.kompiler.globalCompileReport
 import io.github.mariuszmarzec.logger.CompileReport
+import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 val operators: List<Operator> = listOf(
@@ -42,7 +43,6 @@ fun operatorHandlers() = mapOf(
 )
 
 
-
 data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<Token> = ArrayDeque<Token>(),
@@ -69,10 +69,10 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
     acc.append(item.value)
 }.toString()
 
-fun onpKompiler(): Kompiler<AstOnp> {
+fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
     val tokenHandlers = OperatorsTokenHandler<AstOnp>(onpTokensHandlers)
-    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, globalCompileReport), WhiteSpaceReader(tokenHandlers))
-    return Kompiler<AstOnp>(handlers, { AstOnp() }, globalCompileReport) { ast ->
+    val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, report), WhiteSpaceReader(tokenHandlers))
+    return Kompiler<AstOnp>(handlers, { AstOnp() }, report) { ast ->
         ast.update {
             // clear any remaining read token
             currentReadToken?.let { readToken ->
@@ -84,25 +84,20 @@ fun onpKompiler(): Kompiler<AstOnp> {
             while (stack.isNotEmpty()) {
                 val token = stack.removeLast()
                 if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
-                    globalCompileReport.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                    report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 output.add(token)
             }
-            
+
             // shunting yard specific
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
                 if (operators.firstOrNull { token.value == it.symbol }?.openClose == true) {
-                    globalCompileReport.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                    report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 makeProcessableNode(token)
             }
             this
-        }
-
-        try {
-        } catch (e: Exception) {
-            globalCompileReport.warning("Error while evaluating expression: ${e.message}")
         }
         ast.value.processableStack.last().run().toString()
     }
@@ -113,6 +108,9 @@ private fun AstOnp.makeProcessableNode() {
 }
 
 private fun AstOnp.makeProcessableNode(token: Token) {
+    if (processableStack.size < 2) {
+        throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at index ${token.index}")
+    }
     val right = processableStack.removeLast()
     val left = processableStack.removeLast()
     val expression = Expression(operatorsMap.getValue(token.value), left, right)
@@ -214,7 +212,7 @@ class RegularOperatorOnpTokenHandler(
 
 class OperatorReader(
     private val tokenHandler: TokenHandler<AstOnp>,
-    private val compileReport: CompileReport
+    private val compileReport: Report
 ) : TokenReader<AstOnp> {
 
     override val allowedCharacters: Set<Char>
@@ -338,9 +336,9 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
 
     private fun runOperation(left: Int, right: Int): Any {
         return when (operator.symbol) {
-            "+" , "plus" -> left + right
+            "+", "plus" -> left + right
             "-" -> left - right
-            "*" , "times" -> left * right
+            "*", "times" -> left * right
             "/" -> left / right
             "%" -> left % right
             "^" -> left.toDouble().pow(right.toDouble()).toInt()
