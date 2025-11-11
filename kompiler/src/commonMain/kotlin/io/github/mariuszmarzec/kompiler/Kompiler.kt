@@ -98,7 +98,7 @@ data class MathOperator(
     val openClose: Boolean = false,
 ) : Operator
 
-    data class FunctionCall(
+data class FunctionCall(
     override val symbol: String,
     override val priority: Int,
     val argumentsCount: Int,

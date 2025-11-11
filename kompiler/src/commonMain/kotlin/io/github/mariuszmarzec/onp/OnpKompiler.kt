@@ -26,8 +26,8 @@ fun operators(): List<Operator> = listOf(
     MathOperator("/", 2),
     MathOperator("%", 2),
     MathOperator("^", 3),
-    FunctionCall("pow", 3, -1),
-    FunctionCall("pow2", 3, -1),
+    FunctionCall("pow", 3, 2),
+    FunctionCall("pow2", 3, 1),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -268,6 +268,9 @@ class OperatorReader(
         ch: Char,
         astState: AstState<AstOnp>
     ) {
+        astState.handleCurrentTokenAsPossibleOperator(tokenHandler, exp)
+
+
         val tokenOperator = Token(index, ch.toString(), type = "operator")
         astState.update {
             val forShuntingYardToken = currentReadToken
@@ -328,23 +331,7 @@ class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRe
         ch: Char,
         astState: AstState<AstOnp>
     ) {
-        val currentReadToken = astState.value.currentReadToken
-        if (currentReadToken != null) {
-
-            if (!tokenHandler.handleToken(currentReadToken, astState, exp).also { astState.value.report.info("Handling token '${currentReadToken.value}' at index ${currentReadToken.index} in expression: $exp: $it") }) {
-                // if not handled, so token is not operator, send to output as it is literal
-                astState.update {
-                    output.add(currentReadToken)
-
-                    createNewProcessableSimpleNode(currentReadToken)
-                    this
-                }
-            }
-            astState.update {
-                this.currentReadToken = null
-                this
-            }
-        }
+        astState.handleCurrentTokenAsPossibleOperator(tokenHandler, exp)
     }
 }
 
@@ -408,7 +395,7 @@ data class FunctionProcessable(
 }
 
 fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
-    when (this) {
+    when (val operator = this@makeProcessableNode) {
         is MathOperator -> {
             if (processableStack.size < 2) {
                 throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at index ${token.index}")
@@ -427,12 +414,37 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                 args.add(processableStack.removeLast())
             }
             args.reverse()
-            val functionDeclaration = functionDeclarations[this]
+            val functionDeclaration = functionDeclarations[operator]
             if (functionDeclaration != null) {
                 processableStack.addLast(FunctionProcessable(functionDeclaration, args))
             } else {
                 report.error("Function declaration not found for function ${token.value} at index ${token.index}")
             }
+        }
+    }
+}
+
+fun AstState<AstOnp>.handleCurrentTokenAsPossibleOperator(tokenHandler: TokenHandler<AstOnp>, exp: String) {
+    val astState = this
+    val currentReadToken = astState.value.currentReadToken
+    if (currentReadToken != null) {
+
+        val isToken = !tokenHandler.handleToken(currentReadToken, astState, exp)
+            .also {
+                astState.value.report.info("Handling as token '${currentReadToken.value}' at index ${currentReadToken.index} in expression: $exp: $it")
+            }
+        if (isToken) {
+            // if not handled, so token is not operator, send to output as it is literal
+            astState.update {
+                output.add(currentReadToken)
+
+                createNewProcessableSimpleNode(currentReadToken)
+                this
+            }
+        }
+        astState.update {
+            this.currentReadToken = null
+            this
         }
     }
 }
