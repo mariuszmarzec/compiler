@@ -26,7 +26,8 @@ fun operators(): List<Operator> = listOf(
     MathOperator("/", 2),
     MathOperator("%", 2),
     MathOperator("^", 3),
-    FunctionCall("pow", -1, 2),
+    FunctionCall("pow", 3, -1),
+    FunctionCall("pow2", 3, -1),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -45,6 +46,7 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
         "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
         "pow" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("pow")),
+        "pow2" to FunctionTokenHandler(operatorsMap.getValue("pow2")),
     )
 }
 
@@ -53,7 +55,10 @@ private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
     return mutableMapOf(
         operatorsMap.getValue("pow") to FunctionDeclaration.Function2(operatorsMap.getValue("pow") as FunctionCall) { base, exponent ->
             (base as Int).toDouble().pow((exponent as Int).toDouble()).toInt()
-        }
+        },
+        operatorsMap.getValue("pow2") to FunctionDeclaration.Function1(operatorsMap.getValue("pow2") as FunctionCall) { base ->
+            (base as Int) * base
+        },
     )
 }
 
@@ -170,6 +175,9 @@ class ClosingParenthesisOnpTokenHandler(
                 stack.removeLast() // Remove the '('
                 handled = true
             }
+            if (stack.lastOrNull()?.value?.let { operations[it] is FunctionCall } == true) {
+                output.add(stack.removeLast())
+            }
 
             // shunting yard specific
             while (operatorsStack.isNotEmpty() && operatorsStack.last().value != "(") {
@@ -177,6 +185,10 @@ class ClosingParenthesisOnpTokenHandler(
             }
             if (operatorsStack.isNotEmpty() && operatorsStack.last().value == "(") {
                 operatorsStack.removeLast() // Remove the '('
+                handled = true
+            }
+            if (operatorsStack.lastOrNull()?.value?.let { operations[it] is FunctionCall } == true) {
+                makeProcessableNode()
             }
             this
         }
@@ -213,6 +225,27 @@ class RegularOperatorOnpTokenHandler(
             }
             operatorsStack.addLast(token)
             currentReadToken = null
+            this
+        }
+        true
+    } else {
+        false
+    }
+}
+
+class FunctionTokenHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.symbol) {
+        astState.update {
+            stack.addLast(token)
+
+            operatorsStack.addLast(token)
             this
         }
         true
@@ -298,7 +331,7 @@ class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenRe
         val currentReadToken = astState.value.currentReadToken
         if (currentReadToken != null) {
 
-            if (!tokenHandler.handleToken(currentReadToken, astState, exp)) {
+            if (!tokenHandler.handleToken(currentReadToken, astState, exp).also { astState.value.report.info("Handling token '${currentReadToken.value}' at index ${currentReadToken.index} in expression: $exp: $it") }) {
                 // if not handled, so token is not operator, send to output as it is literal
                 astState.update {
                     output.add(currentReadToken)
