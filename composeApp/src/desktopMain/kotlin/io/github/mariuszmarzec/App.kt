@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,8 @@ fun App() {
             var text by remember { mutableStateOf("") }
             var output by remember { mutableStateOf("") }
 
+            val scrollState = rememberScrollState()
+
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth().height(400.dp),
                 value = text,
@@ -61,8 +64,11 @@ fun App() {
                 Text("Compile")
             }
 
+            LaunchedEffect(output) {
+                scrollState.scrollTo(scrollState.maxValue)
+            }
             Box(
-                Modifier.verticalScroll(rememberScrollState())
+                Modifier.verticalScroll(scrollState)
                     .fillMaxWidth()
                     .weight(1f)
                     .background(Color.LightGray)
