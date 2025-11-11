@@ -87,20 +87,33 @@ class OperatorsTokenHandler<T>(
     ): Boolean = handlers.firstOrNull { it.handleToken(token, astState, exp) }?.let { true } == true
 }
 
-sealed interface Operation {
+sealed interface Operator {
     val symbol: String
     val priority: Int
 }
 
-data class Operator(
+data class MathOperator(
     override val symbol: String,
     override val priority: Int,
     val openClose: Boolean = false,
-) : Operation
+) : Operator
 
-data class Function(
+    data class FunctionCall(
     override val symbol: String,
     override val priority: Int,
     val argumentsCount: Int,
-    val arguments: List<Int>,
-) : Operation
+) : Operator
+
+sealed class FunctionDeclaration(
+    open val call: FunctionCall
+) {
+    data class Function1(
+        override val call: FunctionCall,
+        val function: (Any) -> Any
+    ) : FunctionDeclaration(call)
+
+    data class Function2(
+        override val call: FunctionCall,
+        val function: (Any, Any) -> Any
+    ) : FunctionDeclaration(call)
+}

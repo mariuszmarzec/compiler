@@ -1,9 +1,11 @@
 package io.github.mariuszmarzec.onp
 
 import io.github.mariuszmarzec.kompiler.AstState
+import io.github.mariuszmarzec.kompiler.FunctionCall
+import io.github.mariuszmarzec.kompiler.FunctionDeclaration
 import io.github.mariuszmarzec.kompiler.Kompiler
-import io.github.mariuszmarzec.kompiler.Operation
 import io.github.mariuszmarzec.kompiler.Operator
+import io.github.mariuszmarzec.kompiler.MathOperator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
@@ -14,16 +16,17 @@ import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 fun operators(): List<Operator> = listOf(
-    Operator("(", -1, openClose = true),
-    Operator("-", 0),
-    Operator("+", 1),
-    Operator("plus", 1),
-    Operator(")", 1, openClose = true),
-    Operator("*", 2),
-    Operator("times", 2),
-    Operator("/", 2),
-    Operator("%", 2),
-    Operator("^", 3),
+    MathOperator("(", -1, openClose = true),
+    MathOperator("-", 0),
+    MathOperator("+", 1),
+    MathOperator("plus", 1),
+    MathOperator(")", 1, openClose = true),
+    MathOperator("*", 2),
+    MathOperator("times", 2),
+    MathOperator("/", 2),
+    MathOperator("%", 2),
+    MathOperator("^", 3),
+    FunctionCall("pow", -1, 2),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -41,9 +44,18 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
         "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
         "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
+        "pow" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("pow")),
     )
 }
 
+private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
+    val operatorsMap = operatorsMap()
+    return mutableMapOf(
+        operatorsMap.getValue("pow") to FunctionDeclaration.Function2(operatorsMap.getValue("pow") as FunctionCall) { base, exponent ->
+            (base as Int).toDouble().pow((exponent as Int).toDouble()).toInt()
+        }
+    )
+}
 
 data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
@@ -52,8 +64,9 @@ data class AstOnp(
     // Shunting Yard specific
     val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
     var operatorsStack: ArrayDeque<Token> = ArrayDeque<Token>(),
-    val operators: MutableList<Operation> = operators().toMutableList(),
-    val operations: MutableMap<String, Operation> = operatorsMap().toMutableMap()
+    val operators: MutableList<Operator> = operators().toMutableList(),
+    val operations: MutableMap<String, Operator> = operatorsMap().toMutableMap(),
+    val functionDeclarations: MutableMap<Operator, FunctionDeclaration> = defaultFunctions()
 ) : AstState<AstOnp> {
 
     override val value: AstOnp = this
@@ -88,7 +101,7 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
 
             while (stack.isNotEmpty()) {
                 val token = stack.removeLast()
-                if ((operators.firstOrNull { token.value == it.symbol } as? Operator)?.openClose == true) {
+                if ((operators.firstOrNull { token.value == it.symbol } as? MathOperator)?.openClose == true) {
                     report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 output.add(token)
@@ -97,7 +110,7 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
             // shunting yard specific
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
-                if ((operators.firstOrNull { token.value == it.symbol } as? Operator)?.openClose == true) {
+                if ((operators.firstOrNull { token.value == it.symbol } as? MathOperator)?.openClose == true) {
                     report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
                 }
                 makeProcessableNode(token)
@@ -113,13 +126,7 @@ private fun AstOnp.makeProcessableNode() {
 }
 
 private fun AstOnp.makeProcessableNode(token: Token) {
-    if (processableStack.size < 2) {
-        throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at index ${token.index}")
-    }
-    val right = processableStack.removeLast()
-    val left = processableStack.removeLast()
-    val expression = Expression(operations.getValue(token.value), left, right)
-    processableStack.addLast(expression)
+    operations[token.value]?.makeProcessableNode(this, token)
 }
 
 class OpeningParenthesisOnpTokenHandler(
@@ -325,7 +332,7 @@ data class Primitive(val value: Int) : Processable {
     override fun run(): Any = value
 }
 
-data class Expression(val operator: Operation, val left: Processable, val right: Processable) : Processable {
+data class Expression(val operator: Operator, val left: Processable, val right: Processable) : Processable {
 
     override fun run(): Any {
         val leftValue = left.run()
@@ -353,4 +360,31 @@ data class Expression(val operator: Operation, val left: Processable, val right:
 data class Variable(val name: String) : Processable {
 
     override fun run(): Any = name
+}
+
+fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
+    when (this) {
+        is MathOperator -> {
+            if (processableStack.size < 2) {
+                throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at index ${token.index}")
+            }
+            val right = processableStack.removeLast()
+            val left = processableStack.removeLast()
+            val expression = Expression(operations.getValue(token.value), left, right)
+            processableStack.addLast(expression)
+        }
+        is FunctionCall -> {
+            val args = mutableListOf<Processable>()
+            repeat(argumentsCount) {
+                if (processableStack.isEmpty()) {
+                    throw IllegalStateException("Not enough elements in processable stack to apply function ${token.value} at index ${token.index}")
+                }
+                args.add(processableStack.removeLast())
+            }
+            args.reverse()
+            // For simplicity, we treat function as a variable with its arguments in this example
+            val functionRepresentation = Variable("${token.value}(${args.joinToString(", ") { it.run().toString() }})")
+            processableStack.addLast(functionRepresentation)
+        }
+    }
 }
