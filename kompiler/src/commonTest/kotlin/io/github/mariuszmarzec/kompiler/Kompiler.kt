@@ -18,8 +18,10 @@ class KompilerTest {
         assertEquals("1 two plus", call("1 plus two"))
 
         // function call
-        assertEquals("1 2 2 pow plus", call("1 plus pow(2, 2)"))
-//        assertEquals("1 a b + 2 pow -", call("1 - pow(a + b, c)"))
+        val astOnp = onpKompiler.compile("1 plus pow(2, 2)").value
+        assertEquals("1 2 2 , pow plus", astOnp.intermediate())
+        assertEquals("5", astOnp.run())
+//        assertEquals("1 a b + 2 , pow -", call("1 - pow(a + b, c)"))
     }
 
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()

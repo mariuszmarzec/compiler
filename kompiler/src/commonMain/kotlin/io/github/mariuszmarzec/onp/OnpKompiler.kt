@@ -66,7 +66,8 @@ data class AstOnp(
     var operatorsStack: ArrayDeque<Token> = ArrayDeque<Token>(),
     val operators: MutableList<Operator> = operators().toMutableList(),
     val operations: MutableMap<String, Operator> = operatorsMap().toMutableMap(),
-    val functionDeclarations: MutableMap<Operator, FunctionDeclaration> = defaultFunctions()
+    val functionDeclarations: MutableMap<Operator, FunctionDeclaration> = defaultFunctions(),
+    val report: Report,
 ) : AstState<AstOnp> {
 
     override val value: AstOnp = this
@@ -90,7 +91,7 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
     val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList())
     val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, report), WhiteSpaceReader(tokenHandlers))
-    return Kompiler<AstOnp>(handlers, { AstOnp() }, report) { ast ->
+    return Kompiler<AstOnp>(handlers, { AstOnp(report = report) }, report) { ast ->
         ast.update {
             // clear any remaining read token
             currentReadToken?.let { readToken ->
@@ -362,6 +363,17 @@ data class Variable(val name: String) : Processable {
     override fun run(): Any = name
 }
 
+data class FunctionProcessable(
+    val function: FunctionDeclaration,
+    val arguments: List<Processable>
+) : Processable {
+
+    override fun run(): Any = when (function) {
+        is FunctionDeclaration.Function1 -> function.function(arguments[0].run())
+        is FunctionDeclaration.Function2 -> function.function(arguments[0].run(), arguments[1].run())
+    }
+}
+
 fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
     when (this) {
         is MathOperator -> {
@@ -377,14 +389,17 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             val args = mutableListOf<Processable>()
             repeat(argumentsCount) {
                 if (processableStack.isEmpty()) {
-                    throw IllegalStateException("Not enough elements in processable stack to apply function ${token.value} at index ${token.index}")
+                    report.error("Not enough elements in processable stack to apply function ${token.value} at index ${token.index}")
                 }
                 args.add(processableStack.removeLast())
             }
             args.reverse()
-            // For simplicity, we treat function as a variable with its arguments in this example
-            val functionRepresentation = Variable("${token.value}(${args.joinToString(", ") { it.run().toString() }})")
-            processableStack.addLast(functionRepresentation)
+            val functionDeclaration = functionDeclarations[this]
+            if (functionDeclaration != null) {
+                processableStack.addLast(FunctionProcessable(functionDeclaration, args))
+            } else {
+                report.error("Function declaration not found for function ${token.value} at index ${token.index}")
+            }
         }
     }
 }
