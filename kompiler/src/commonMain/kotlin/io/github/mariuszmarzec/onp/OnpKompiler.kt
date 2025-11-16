@@ -7,6 +7,7 @@ import io.github.mariuszmarzec.kompiler.Kompiler
 import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.MathOperator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
+import io.github.mariuszmarzec.kompiler.SeparatorOperator
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
@@ -16,6 +17,7 @@ import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 fun operators(): List<Operator> = listOf(
+    SeparatorOperator(",", -2),
     MathOperator("(", -1, openClose = true),
     MathOperator("-", 0),
     MathOperator("+", 1),
@@ -28,6 +30,8 @@ fun operators(): List<Operator> = listOf(
     MathOperator("^", 3),
     FunctionCall("pow", 3, 2),
     FunctionCall("pow2", 3, 1),
+    FunctionCall("pow", 3, 2),
+    FunctionCall("min3", 3, 3),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -35,6 +39,7 @@ fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol 
 fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
     val operatorsMap = operatorsMap()
     return mapOf(
+        "," to SeparatorOperatorOnpTokenHandler(operatorsMap.getValue(",")),
         "(" to OpeningParenthesisOnpTokenHandler(operatorsMap.getValue("(")),
         "-" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("-")),
         "+" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("+")),
@@ -45,8 +50,9 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
         "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
         "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
-        "pow" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("pow")),
+        "pow" to FunctionTokenHandler(operatorsMap.getValue("pow")),
         "pow2" to FunctionTokenHandler(operatorsMap.getValue("pow2")),
+        "min3" to FunctionTokenHandler(operatorsMap.getValue("min3")),
     )
 }
 
@@ -58,6 +64,9 @@ private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
         },
         operatorsMap.getValue("pow2") to FunctionDeclaration.Function1(operatorsMap.getValue("pow2") as FunctionCall) { base ->
             (base as Int) * base
+        },
+        operatorsMap.getValue("min3") to FunctionDeclaration.Function3(operatorsMap.getValue("min3") as FunctionCall) { a, b, c ->
+            listOf(a as Int, b as Int, c as Int).min()
         },
     )
 }
@@ -78,6 +87,7 @@ data class AstOnp(
     override val value: AstOnp = this
 
     override fun update(action: AstOnp.() -> AstOnp) {
+        println("AST before update: ${this.value.processableStack} ${this.operatorsStack}")
         this.action()
     }
 
@@ -225,6 +235,33 @@ class RegularOperatorOnpTokenHandler(
             }
             operatorsStack.addLast(token)
             currentReadToken = null
+            this
+        }
+        true
+    } else {
+        false
+    }
+}
+
+class SeparatorOperatorOnpTokenHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.symbol) {
+        astState.update {
+            while (stack.isNotEmpty() && stack.last().value != "(") {
+                output.add(stack.removeLast())
+            }
+            stack.addLast(token)
+
+            // shunting yard specific
+            while (operatorsStack.isNotEmpty() && operatorsStack.last().value != "(") {
+                makeProcessableNode()
+            }
             this
         }
         true
@@ -391,6 +428,7 @@ data class FunctionProcessable(
     override fun run(): Any = when (function) {
         is FunctionDeclaration.Function1 -> function.function(arguments[0].run())
         is FunctionDeclaration.Function2 -> function.function(arguments[0].run(), arguments[1].run())
+        is FunctionDeclaration.Function3 -> function.function(arguments[0].run(), arguments[1].run(), arguments[2].run())
     }
 }
 
@@ -419,6 +457,13 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                 processableStack.addLast(FunctionProcessable(functionDeclaration, args))
             } else {
                 report.error("Function declaration not found for function ${token.value} at index ${token.index}")
+            }
+        }
+        is SeparatorOperator -> {
+            if (operatorsStack.last().value == "(") {
+                // do nothing, just separator between function arguments
+            } else {
+                report.error("Misplaced separator ${token.value} at index ${token.index}, should be inside function call parentheses")
             }
         }
     }

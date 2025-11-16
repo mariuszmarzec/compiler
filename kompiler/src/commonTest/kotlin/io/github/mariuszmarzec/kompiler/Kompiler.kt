@@ -19,22 +19,31 @@ class KompilerTest {
     }
 
     @Test
-    fun onpFunction1Test() {
-        // function call
+    fun onpFunction1CallTest() {
         val astOnp = onpKompiler.compile("1 plus pow2(2)").value
         assertEquals("1 2 pow2 plus", astOnp.intermediate())
         assertEquals("5", astOnp.run())
-//        assertEquals("1 a b + 2 , pow -", call("1 - pow(a + b, c)"))
     }
 
-//    @Test
-//    fun onpFunction2Test() {
-//        // function call
-//        val astOnp = onpKompiler.compile("1 plus pow(2, 2)").value
-//        assertEquals("1 2 2 , pow plus", astOnp.intermediate())
-//        assertEquals("5", astOnp.run())
-////        assertEquals("1 a b + 2 , pow -", call("1 - pow(a + b, c)"))
-//    }
+    @Test
+    fun onpFunction2CallTest() {
+        // function call
+        val astOnp = onpKompiler.compile("1 plus pow(2, 2)").value
+        assertEquals("5", astOnp.run())
+        assertEquals("1 2 2 , pow plus", astOnp.intermediate())
+        assertEquals("1 a b + c , pow -", call("1 - pow(a + (b), c)"))
+        assertEquals("1 a b + c , pow -", call("1 - pow(a + b, c)"))
+        assertEquals("1 a b + d , pow c , pow -", call("1 - pow(pow(a + b, d), c)"))
+    }
+
+    @Test
+    fun onpFunction3CallTest() {
+        // function call
+        val astOnp = onpKompiler.compile("1 plus min3(3, 1, 2)").value
+        assertEquals("2", astOnp.run())
+        assertEquals("1 3 1 , 2 , min3 plus", astOnp.intermediate())
+    }
+
 
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
 }

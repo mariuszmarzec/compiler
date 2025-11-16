@@ -104,6 +104,11 @@ data class FunctionCall(
     val argumentsCount: Int,
 ) : Operator
 
+data class SeparatorOperator(
+    override val symbol: String,
+    override val priority: Int,
+) : Operator
+
 sealed class FunctionDeclaration(
     open val call: FunctionCall
 ) {
@@ -115,5 +120,10 @@ sealed class FunctionDeclaration(
     data class Function2(
         override val call: FunctionCall,
         val function: (Any, Any) -> Any
+    ) : FunctionDeclaration(call)
+
+    data class Function3(
+        override val call: FunctionCall,
+        val function: (Any, Any, Any) -> Any
     ) : FunctionDeclaration(call)
 }
