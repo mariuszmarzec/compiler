@@ -25,6 +25,13 @@ class KompilerTest {
         assertEquals("5", astOnp.run())
     }
 
+//    @Test
+//    fun onpFunction1CallOverloadTest() {
+//        val astOnp = onpKompiler.compile("1 plus pow(2)").value
+//        assertEquals("1 2 pow plus", astOnp.intermediate())
+//        assertEquals("5", astOnp.run())
+//    }
+
     @Test
     fun onpFunction2CallTest() {
         // function call

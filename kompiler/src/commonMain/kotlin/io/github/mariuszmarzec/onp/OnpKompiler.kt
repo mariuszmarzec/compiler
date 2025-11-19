@@ -30,7 +30,7 @@ fun operators(): List<Operator> = listOf(
     MathOperator("^", 3),
     FunctionCall("pow", 3, 2),
     FunctionCall("pow2", 3, 1),
-    FunctionCall("pow", 3, 2),
+    FunctionCall("pow", 3, 1),
     FunctionCall("min3", 3, 3),
 )
 
@@ -50,22 +50,26 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "/" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("/")),
         "%" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("%")),
         "^" to RegularOperatorOnpTokenHandler(operatorsMap.getValue("^")),
-        "pow" to FunctionTokenHandler(operatorsMap.getValue("pow")),
-        "pow2" to FunctionTokenHandler(operatorsMap.getValue("pow2")),
-        "min3" to FunctionTokenHandler(operatorsMap.getValue("min3")),
+        "pow$1" to FunctionTokenHandler(operatorsMap.getValue("pow$1")),
+        "pow$2" to FunctionTokenHandler(operatorsMap.getValue("pow$2")),
+        "pow2$1" to FunctionTokenHandler(operatorsMap.getValue("pow2$1")),
+        "min3$3" to FunctionTokenHandler(operatorsMap.getValue("min3$3")),
     )
 }
 
 private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
     val operatorsMap = operatorsMap()
     return mutableMapOf(
-        operatorsMap.getValue("pow") to FunctionDeclaration.Function2(operatorsMap.getValue("pow") as FunctionCall) { base, exponent ->
+        operatorsMap.getValue("pow$2") to FunctionDeclaration.Function2(operatorsMap.getValue("pow$2") as FunctionCall) { base, exponent ->
             (base as Int).toDouble().pow((exponent as Int).toDouble()).toInt()
         },
-        operatorsMap.getValue("pow2") to FunctionDeclaration.Function1(operatorsMap.getValue("pow2") as FunctionCall) { base ->
+        operatorsMap.getValue("pow2$1") to FunctionDeclaration.Function1(operatorsMap.getValue("pow2$1") as FunctionCall) { base ->
             (base as Int) * base
         },
-        operatorsMap.getValue("min3") to FunctionDeclaration.Function3(operatorsMap.getValue("min3") as FunctionCall) { a, b, c ->
+        operatorsMap.getValue("pow$1") to FunctionDeclaration.Function1(operatorsMap.getValue("pow$1") as FunctionCall) { base ->
+            (base as Int) * base
+        },
+        operatorsMap.getValue("min3$3") to FunctionDeclaration.Function3(operatorsMap.getValue("min3$3") as FunctionCall) { a, b, c ->
             listOf(a as Int, b as Int, c as Int).min()
         },
     )
@@ -73,11 +77,11 @@ private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
 
 data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
-    val stack: ArrayDeque<Token> = ArrayDeque<Token>(),
+    val stack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     var currentReadToken: Token? = null,
     // Shunting Yard specific
     val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
-    var operatorsStack: ArrayDeque<Token> = ArrayDeque<Token>(),
+    var operatorsStack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     val operators: MutableList<Operator> = operators().toMutableList(),
     val operations: MutableMap<String, Operator> = operatorsMap().toMutableMap(),
     val functionDeclarations: MutableMap<Operator, FunctionDeclaration> = defaultFunctions(),
@@ -117,17 +121,17 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
 
             while (stack.isNotEmpty()) {
                 val token = stack.removeLast()
-                if ((operators.firstOrNull { token.value == it.symbol } as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                if ((token.operator as? MathOperator)?.openClose == true) {
+                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at index ${token.token.index}")
                 }
-                output.add(token)
+                output.add(token.token)
             }
 
             // shunting yard specific
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
-                if ((operators.firstOrNull { token.value == it.symbol } as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.value} at index ${token.index}")
+                if ((token.operator as? MathOperator)?.openClose == true) {
+                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at index ${token.token.index}")
                 }
                 makeProcessableNode(token)
             }
@@ -141,8 +145,8 @@ private fun AstOnp.makeProcessableNode() {
     makeProcessableNode(operatorsStack.removeLast())
 }
 
-private fun AstOnp.makeProcessableNode(token: Token) {
-    operations[token.value]?.makeProcessableNode(this, token)
+private fun AstOnp.makeProcessableNode(token: OperatorStackEntry) {
+    operations[token.operator.symbol]?.makeProcessableNode(this, token.token)
 }
 
 class OpeningParenthesisOnpTokenHandler(
@@ -153,11 +157,11 @@ class OpeningParenthesisOnpTokenHandler(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == operator.symbol) {
+    ): Boolean = if (token.value == operator.token) {
         astState.update {
-            stack.addLast(token)
+            stack.addLast(OperatorStackEntry(token, operator))
 
-            operatorsStack.addLast(token)
+            operatorsStack.addLast(OperatorStackEntry(token, operator))
             this
         }
         true
@@ -175,29 +179,29 @@ class ClosingParenthesisOnpTokenHandler(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == operator.symbol) {
+    ): Boolean = if (token.value == operator.token) {
         var handled = false
         astState.update {
-            while (stack.isNotEmpty() && stack.last().value != "(") {
-                output.add(stack.removeLast())
+            while (stack.isNotEmpty() && stack.last().token.value != "(") {
+                output.add(stack.removeLast().token)
             }
-            if (stack.isNotEmpty() && stack.last().value == "(") {
+            if (stack.isNotEmpty() && stack.last().token.value == "(") {
                 stack.removeLast() // Remove the '('
                 handled = true
             }
-            if (stack.lastOrNull()?.value?.let { operations[it] is FunctionCall } == true) {
-                output.add(stack.removeLast())
+            if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
+                output.add(stack.removeLast().token)
             }
 
             // shunting yard specific
-            while (operatorsStack.isNotEmpty() && operatorsStack.last().value != "(") {
+            while (operatorsStack.isNotEmpty() && operatorsStack.last().token.value != "(") {
                 makeProcessableNode()
             }
-            if (operatorsStack.isNotEmpty() && operatorsStack.last().value == "(") {
+            if (operatorsStack.isNotEmpty() && operatorsStack.last().token.value == "(") {
                 operatorsStack.removeLast() // Remove the '('
                 handled = true
             }
-            if (operatorsStack.lastOrNull()?.value?.let { operations[it] is FunctionCall } == true) {
+            if (operatorsStack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
                 makeProcessableNode()
             }
             this
@@ -220,20 +224,20 @@ class RegularOperatorOnpTokenHandler(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == operator.symbol) {
+    ): Boolean = if (token.value == operator.token) {
         astState.update {
-            while (stack.isNotEmpty() && operator.priority <= operations.getValue(stack.last().value).priority) {
+            while (stack.isNotEmpty() && operator.priority <= operations.getValue(stack.last().token.value).priority) {
                 val element = stack.removeLast()
-                output.add(element)
+                output.add(element.token)
             }
-            stack.addLast(token)
+            stack.addLast(OperatorStackEntry(token, operator))
             currentReadToken = null
             this
 
-            while (operatorsStack.isNotEmpty() && operator.priority <= operations.getValue(operatorsStack.last().value).priority) {
+            while (operatorsStack.isNotEmpty() && operator.priority <= operations.getValue(operatorsStack.last().token.value).priority) {
                 makeProcessableNode()
             }
-            operatorsStack.addLast(token)
+            operatorsStack.addLast(OperatorStackEntry(token, operator))
             currentReadToken = null
             this
         }
@@ -251,15 +255,15 @@ class SeparatorOperatorOnpTokenHandler(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == operator.symbol) {
+    ): Boolean = if (token.value == operator.token) {
         astState.update {
-            while (stack.isNotEmpty() && stack.last().value != "(") {
-                output.add(stack.removeLast())
+            while (stack.isNotEmpty() && stack.last().token.value != "(") {
+                output.add(stack.removeLast().token)
             }
-            stack.addLast(token)
+            stack.addLast(OperatorStackEntry(token, operator))
 
             // shunting yard specific
-            while (operatorsStack.isNotEmpty() && operatorsStack.last().value != "(") {
+            while (operatorsStack.isNotEmpty() && operatorsStack.last().token.value != "(") {
                 makeProcessableNode()
             }
             this
@@ -278,11 +282,12 @@ class FunctionTokenHandler(
         token: Token,
         astState: AstState<AstOnp>,
         exp: String,
-    ): Boolean = if (token.value == operator.symbol) {
+    ): Boolean = if (token.value == operator.token) {
+        val element = OperatorStackEntry(token = token, operator = (operator as FunctionCall).copy(argumentsCount = 0)) TUTAJ skonczyles trzeba liczyc argumenty
         astState.update {
-            stack.addLast(token)
+            stack.addLast(element)
 
-            operatorsStack.addLast(token)
+            operatorsStack.addLast(element)
             this
         }
         true
@@ -398,19 +403,19 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
         return if (leftValue is Int && rightValue is Int) {
             runOperation(leftValue, rightValue)
         } else {
-            "($leftValue ${operator.symbol} $rightValue)"
+            "($leftValue ${operator.token} $rightValue)"
         }
     }
 
     private fun runOperation(left: Int, right: Int): Any {
-        return when (operator.symbol) {
+        return when (operator.token) {
             "+", "plus" -> left + right
             "-" -> left - right
             "*", "times" -> left * right
             "/" -> left / right
             "%" -> left % right
             "^" -> left.toDouble().pow(right.toDouble()).toInt()
-            else -> throw IllegalStateException("Unknown operator: ${operator.symbol}")
+            else -> throw IllegalStateException("Unknown operator: ${operator.token}")
         }
     }
 }
@@ -460,7 +465,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             }
         }
         is SeparatorOperator -> {
-            if (operatorsStack.last().value == "(") {
+            if (operatorsStack.last().token.value == "(") {
                 // do nothing, just separator between function arguments
             } else {
                 report.error("Misplaced separator ${token.value} at index ${token.index}, should be inside function call parentheses")

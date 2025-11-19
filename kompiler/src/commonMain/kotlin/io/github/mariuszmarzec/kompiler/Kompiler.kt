@@ -2,8 +2,8 @@ package io.github.mariuszmarzec.kompiler
 
 import io.github.mariuszmarzec.logger.CompileReport
 import io.github.mariuszmarzec.logger.Report
-
 val globalCompileReport: CompileReport = CompileReport()
+
 
 interface AstState<T> {
 
@@ -88,26 +88,33 @@ class OperatorsTokenHandler<T>(
 }
 
 sealed interface Operator {
+    val token: String
     val symbol: String
     val priority: Int
 }
 
 data class MathOperator(
-    override val symbol: String,
+    override val token: String,
     override val priority: Int,
     val openClose: Boolean = false,
-) : Operator
+) : Operator {
+    override val symbol: String = token
+}
 
 data class FunctionCall(
-    override val symbol: String,
+    override val token: String,
     override val priority: Int,
     val argumentsCount: Int,
-) : Operator
+) : Operator {
+    override val symbol: String = "$token$$argumentsCount"
+}
 
 data class SeparatorOperator(
-    override val symbol: String,
+    override val token: String,
     override val priority: Int,
-) : Operator
+) : Operator {
+    override val symbol: String = token
+}
 
 sealed class FunctionDeclaration(
     open val call: FunctionCall
