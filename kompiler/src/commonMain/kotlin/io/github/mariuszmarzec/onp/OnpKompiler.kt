@@ -76,9 +76,9 @@ private fun defaultFunctions(): MutableMap<Operator, FunctionDeclaration> {
 }
 
 data class AstOnp(
+    // ONP specific
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
-    var currentReadToken: Token? = null,
     // Shunting Yard specific
     val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
     var operatorsStack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
@@ -87,6 +87,16 @@ data class AstOnp(
     val functionDeclarations: MutableMap<Operator, FunctionDeclaration> = defaultFunctions(),
     val report: Report,
 ) : AstState<AstOnp> {
+
+
+    // common
+    var lastToken: Token? = null
+
+    var currentReadToken: Token? = null
+        set(value) {
+            field?.let { lastToken = it }
+            field = value
+        }
 
     override val value: AstOnp = this
 
@@ -201,7 +211,14 @@ class ClosingParenthesisOnpTokenHandler(
                 operatorsStack.removeLast() // Remove the '('
                 handled = true
             }
-            if (operatorsStack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
+            if (operatorsStack.lastOrNull()?.operator is FunctionCall) {
+                if (lastToken?.value != ",") {
+                    // if last token is not separator, increase arguments count
+                    val funcEntry = operatorsStack.removeLast()
+                    val funcOperator = funcEntry.operator as FunctionCall
+                    val updatedFuncOperator = funcOperator.copy(argumentsCount = funcOperator.argumentsCount + 1)
+                    operatorsStack.addLast(OperatorStackEntry(funcEntry.token, updatedFuncOperator))
+                }
                 makeProcessableNode()
             }
             this
@@ -266,6 +283,12 @@ class SeparatorOperatorOnpTokenHandler(
             while (operatorsStack.isNotEmpty() && operatorsStack.last().token.value != "(") {
                 makeProcessableNode()
             }
+            if (operatorsStack.getOrNull(operatorsStack.lastIndex - 1)?.operator is FunctionCall) {
+                val funcEntry = operatorsStack[operatorsStack.lastIndex - 1]
+                val funcOperator = funcEntry.operator as FunctionCall
+                val updatedFuncOperator = funcOperator.copy(argumentsCount = funcOperator.argumentsCount + 1)
+                operatorsStack[operatorsStack.lastIndex - 1] = OperatorStackEntry(funcEntry.token, updatedFuncOperator)
+            }
             this
         }
         true
@@ -283,7 +306,7 @@ class FunctionTokenHandler(
         astState: AstState<AstOnp>,
         exp: String,
     ): Boolean = if (token.value == operator.token) {
-        val element = OperatorStackEntry(token = token, operator = (operator as FunctionCall).copy(argumentsCount = 0)) TUTAJ skonczyles trzeba liczyc argumenty
+        val element = OperatorStackEntry(token = token, operator = (operator as FunctionCall).copy(argumentsCount = 0))
         astState.update {
             stack.addLast(element)
 
@@ -450,6 +473,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
         }
         is FunctionCall -> {
             val args = mutableListOf<Processable>()
+            println("Function call for ${token.value} with arguments count ${operator.argumentsCount}")
             repeat(argumentsCount) {
                 if (processableStack.isEmpty()) {
                     report.error("Not enough elements in processable stack to apply function ${token.value} at index ${token.index}")
