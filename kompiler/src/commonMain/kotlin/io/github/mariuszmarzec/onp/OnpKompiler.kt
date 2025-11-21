@@ -8,6 +8,7 @@ import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.MathOperator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
 import io.github.mariuszmarzec.kompiler.SeparatorOperator
+import io.github.mariuszmarzec.kompiler.VariableDeclaration
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
@@ -17,6 +18,7 @@ import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 fun operators(): List<Operator> = listOf(
+    VariableDeclaration("val", -3),
     SeparatorOperator(",", -2),
     MathOperator("(", -1, openClose = true),
     MathOperator("-", 0),
@@ -54,6 +56,7 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "pow$2" to FunctionTokenHandler(operatorsMap.getValue("pow$2")),
         "pow2$1" to FunctionTokenHandler(operatorsMap.getValue("pow2$1")),
         "min3$3" to FunctionTokenHandler(operatorsMap.getValue("min3$3")),
+        "val" to VariableDeclarationHandler(operatorsMap.getValue("val")),
     )
 }
 
@@ -307,6 +310,28 @@ class FunctionTokenHandler(
         exp: String,
     ): Boolean = if (token.value == operator.token) {
         val element = OperatorStackEntry(token = token, operator = (operator as FunctionCall).copy(argumentsCount = 0))
+        astState.update {
+            stack.addLast(element)
+
+            operatorsStack.addLast(element)
+            this
+        }
+        true
+    } else {
+        false
+    }
+}
+
+class VariableDeclarationHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.token) {
+        val element = OperatorStackEntry(token, operator)
         astState.update {
             stack.addLast(element)
 
