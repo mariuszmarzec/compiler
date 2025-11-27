@@ -1,5 +1,6 @@
 package io.github.mariuszmarzec.onp
 
+import io.github.mariuszmarzec.kompiler.AssignmentOperator
 import io.github.mariuszmarzec.kompiler.AstState
 import io.github.mariuszmarzec.kompiler.FunctionCall
 import io.github.mariuszmarzec.kompiler.FunctionDeclaration
@@ -18,6 +19,8 @@ import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 fun operators(): List<Operator> = listOf(
+    AssignmentOperator("=", -4),
+    AssignmentOperator("is", -4),
     VariableDeclaration("val", -3),
     SeparatorOperator(",", -2),
     MathOperator("(", -1, openClose = true),
@@ -56,7 +59,9 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "pow$2" to FunctionTokenHandler(operatorsMap.getValue("pow$2")),
         "pow2$1" to FunctionTokenHandler(operatorsMap.getValue("pow2$1")),
         "min3$3" to FunctionTokenHandler(operatorsMap.getValue("min3$3")),
-        "val" to VariableDeclarationHandler(operatorsMap.getValue("val")),
+        "val" to SimpleOperatorHandler(operatorsMap.getValue("val")),
+        "=" to AssignmentOperatorHandler(operatorsMap.getValue("=")),
+        "is" to AssignmentOperatorHandler(operatorsMap.getValue("is")),
     )
 }
 
@@ -161,6 +166,7 @@ private fun AstOnp.makeProcessableNode(token: OperatorStackEntry) {
     operations[token.operator.symbol]?.makeProcessableNode(this, token.token)
 }
 
+// same as simple operator handler
 class OpeningParenthesisOnpTokenHandler(
     override val operator: Operator,
 ) : TokenHandler<AstOnp> {
@@ -321,7 +327,7 @@ class FunctionTokenHandler(
     }
 }
 
-class VariableDeclarationHandler(
+class SimpleOperatorHandler(
     override val operator: Operator,
 ) : TokenHandler<AstOnp> {
 
@@ -334,6 +340,39 @@ class VariableDeclarationHandler(
         astState.update {
             stack.addLast(element)
 
+            operatorsStack.addLast(element)
+            this
+        }
+        true
+    } else {
+        false
+    }
+}
+
+class AssignmentOperatorHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.token) {
+        val element = OperatorStackEntry(token, operator)
+        astState.update {
+            if (stack.lastOrNull()?.token?.value in listOf("val", "is")) {
+                output.add(stack.removeLast().token)
+            } else {
+                report.error("Invalid assignment to variable declaration at index ${token.index} in expression: $exp")
+            }
+            stack.addLast(element)
+
+            // shunting yard specific
+            if (operatorsStack.lastOrNull()?.token?.value in listOf("val", "is")) {
+                makeProcessableNode()
+            } else {
+                report.error("Invalid assignment to variable declaration at index ${token.index} in expression: $exp")
+            }
             operatorsStack.addLast(element)
             this
         }
@@ -540,8 +579,18 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             val constVariableProcessable = ConstVariableDeclaration(variableName)
             processableStack.addLast(constVariableProcessable)
         }
-        else -> {
-            report.error("Unknown operator type for token ${token.value} at index ${token.index}")
+
+        is AssignmentOperator -> {
+            if (processableStack.size < 2) {
+                report.error("Not enough elements in processable stack to apply assignment operator ${token.value} at index ${token.index}")
+            }
+            val valueProcessable = processableStack.removeLast()
+            val variableProcessable = processableStack.removeLast()
+            val declarationProcessable = variableProcessable as? ConstVariableDeclaration ?:
+                throw IllegalStateException("Invalid variable for assignment at index ${token.index}, expected variable declaration but got $variableProcessable")
+
+            val constVariableProcessable = declarationProcessable.copy(value = valueProcessable)
+            processableStack.addLast(constVariableProcessable)
         }
     }
 }

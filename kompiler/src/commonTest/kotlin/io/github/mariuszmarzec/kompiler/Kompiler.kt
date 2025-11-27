@@ -1,5 +1,8 @@
 package io.github.mariuszmarzec.kompiler
 
+import io.github.mariuszmarzec.onp.ConstVariableDeclaration
+import io.github.mariuszmarzec.onp.Expression
+import io.github.mariuszmarzec.onp.Primitive
 import io.github.mariuszmarzec.onp.onpKompiler
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -49,6 +52,13 @@ class KompilerTest {
         val astOnp = onpKompiler.compile("1 plus min3(3, 1, 2)").value
         assertEquals("2", astOnp.run())
         assertEquals("1 3 1 , 2 , min3 plus", astOnp.intermediate())
+    }
+
+    @Test
+    fun assignmentOperator() {
+        val astOnp = onpKompiler.compile("val a is 1 plus 2").value
+        assertEquals("a val 1 2 plus is", astOnp.intermediate())
+        assertEquals("ConstVariableDeclaration(name=a, value=Expression(operator=MathOperator(token=plus, priority=1, openClose=false), left=Primitive(value=1), right=Primitive(value=2)))", astOnp.run())
     }
 
 

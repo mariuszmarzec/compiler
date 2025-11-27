@@ -109,6 +109,13 @@ data class FunctionCall(
     override val symbol: String = "$token$$argumentsCount"
 }
 
+data class AssignmentOperator(
+    override val token: String,
+    override val priority: Int,
+) : Operator {
+    override val symbol: String = token
+}
+
 data class SeparatorOperator(
     override val token: String,
     override val priority: Int,
