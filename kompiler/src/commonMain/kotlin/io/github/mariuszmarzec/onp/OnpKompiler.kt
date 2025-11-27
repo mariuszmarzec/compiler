@@ -139,7 +139,6 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
                 }
                 output.add(token.token)
             }
-
             // shunting yard specific
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
@@ -385,7 +384,7 @@ class OperatorReader(
 private fun AstOnp.createNewProcessableSimpleNode(forShuntingYardToken: Token?) {
     if (forShuntingYardToken != null) {
         processableStack.addLast(
-            forShuntingYardToken.value.toIntOrNull()?.let { Primitive(it) } ?: Variable(forShuntingYardToken.value)
+            forShuntingYardToken.value.toIntOrNull()?.let { Primitive(it) } ?: Literal(forShuntingYardToken.value)
         )
     }
 }
@@ -468,9 +467,14 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
     }
 }
 
-data class Variable(val name: String) : Processable {
+data class Literal(val name: String) : Processable {
 
     override fun run(): Any = name
+}
+
+data class ConstVariableDeclaration(val name: String, val value: Processable? = null) : Processable {
+
+    override fun run(): Any = this
 }
 
 data class FunctionProcessable(
@@ -519,6 +523,25 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             } else {
                 report.error("Misplaced separator ${token.value} at index ${token.index}, should be inside function call parentheses")
             }
+        }
+
+        is VariableDeclaration -> {
+            if (processableStack.size < 1) {
+                report.error("Not enough elements in processable stack to apply variable declaration ${token.value} at index ${token.index}")
+            }
+            val processable = processableStack.removeLast()
+            val variableName = when (processable) {
+                is Literal -> processable.name
+                else -> {
+                    throw kotlin.IllegalStateException("Invalid variable name for declaration at index ${token.index}, expected literal but got $processable")
+                }
+            }
+
+            val constVariableProcessable = ConstVariableDeclaration(variableName)
+            processableStack.addLast(constVariableProcessable)
+        }
+        else -> {
+            report.error("Unknown operator type for token ${token.value} at index ${token.index}")
         }
     }
 }
