@@ -113,7 +113,7 @@ data class AstOnp(
         this.action()
     }
 
-    override fun run(): String = value.processableStack.last().run().toString()
+    override fun run(): String = value.processableStack.last().invoke(BlockProcessable(emptyList(), emptyMap(), operatorsMap())).toString()
 
     fun intermediate(): String = printInput(output)
 }
@@ -473,19 +473,19 @@ fun AstOnp.sendCurrentTokenToOutput() {
 
 interface Processable {
 
-    fun run(): Any
+    fun invoke(processable: BlockProcessable): Any
 }
 
 data class Primitive(val value: Int) : Processable {
 
-    override fun run(): Any = value
+    override fun invoke(processable: BlockProcessable): Any = value
 }
 
 data class Expression(val operator: Operator, val left: Processable, val right: Processable) : Processable {
 
-    override fun run(): Any {
-        val leftValue = left.run()
-        val rightValue = right.run()
+    override fun invoke(processable: BlockProcessable): Any {
+        val leftValue = left.invoke(processable)
+        val rightValue = right.invoke(processable)
         return if (leftValue is Int && rightValue is Int) {
             runOperation(leftValue, rightValue)
         } else {
@@ -508,12 +508,12 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
 
 data class Literal(val name: String) : Processable {
 
-    override fun run(): Any = name
+    override fun invoke(processable: BlockProcessable): Any = name
 }
 
 data class ConstVariableDeclaration(val name: String, val value: Processable? = null) : Processable {
 
-    override fun run(): Any = this
+    override fun invoke(processable: BlockProcessable): Any = this
 }
 
 data class FunctionProcessable(
@@ -521,10 +521,45 @@ data class FunctionProcessable(
     val arguments: List<Processable>
 ) : Processable {
 
-    override fun run(): Any = when (function) {
-        is FunctionDeclaration.Function1 -> function.function(arguments[0].run())
-        is FunctionDeclaration.Function2 -> function.function(arguments[0].run(), arguments[1].run())
-        is FunctionDeclaration.Function3 -> function.function(arguments[0].run(), arguments[1].run(), arguments[2].run())
+    override fun invoke(processable: BlockProcessable): Any = when (function) {
+        is FunctionDeclaration.Function1 -> function.function(arguments[0].invoke(processable))
+        is FunctionDeclaration.Function2 -> function.function(
+            arguments[0].invoke(processable),
+            arguments[1].invoke(processable)
+        )
+
+        is FunctionDeclaration.Function3 -> function.function(
+            arguments[0].invoke(processable), arguments[1].invoke(processable), arguments[2].invoke(
+                processable
+            )
+        )
+    }
+}
+
+data class BlockProcessable(
+    val processables: List<Processable>,
+    val variables: Map<String, ConstVariableDeclaration> = emptyMap(),
+    val operators: Map<String, Operator> = emptyMap(),
+) : Processable {
+
+    override fun invoke(processable: BlockProcessable): Any {
+        var result: Any = Unit
+        for (processable in processables) {
+            result = processable.invoke(this)
+        }
+        return result
+    }
+
+    fun appendProcessable(processable: Processable): BlockProcessable {
+        return this.copy(processables = this.processables + processable)
+    }
+
+    fun appendVariable(variable: ConstVariableDeclaration): BlockProcessable {
+        return this.copy(variables = this.variables + (variable.name to variable))
+    }
+
+    fun appendOperator(operator: Operator): BlockProcessable {
+        return this.copy(operators = this.operators + (operator.symbol to operator))
     }
 }
 
@@ -539,6 +574,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             val expression = Expression(operations.getValue(token.value), left, right)
             processableStack.addLast(expression)
         }
+
         is FunctionCall -> {
             val args = mutableListOf<Processable>()
             println("Function call for ${token.value} with arguments count ${operator.argumentsCount}")
@@ -556,6 +592,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                 report.error("Function declaration not found for function ${token.value} at index ${token.index}")
             }
         }
+
         is SeparatorOperator -> {
             if (operatorsStack.last().token.value == "(") {
                 // do nothing, just separator between function arguments
@@ -586,8 +623,8 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             }
             val valueProcessable = processableStack.removeLast()
             val variableProcessable = processableStack.removeLast()
-            val declarationProcessable = variableProcessable as? ConstVariableDeclaration ?:
-                throw IllegalStateException("Invalid variable for assignment at index ${token.index}, expected variable declaration but got $variableProcessable")
+            val declarationProcessable = variableProcessable as? ConstVariableDeclaration
+                ?: throw IllegalStateException("Invalid variable for assignment at index ${token.index}, expected variable declaration but got $variableProcessable")
 
             val constVariableProcessable = declarationProcessable.copy(value = valueProcessable)
             processableStack.addLast(constVariableProcessable)
