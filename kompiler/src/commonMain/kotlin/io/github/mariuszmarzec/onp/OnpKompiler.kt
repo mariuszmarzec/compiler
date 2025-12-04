@@ -113,7 +113,14 @@ data class AstOnp(
         this.action()
     }
 
-    override fun run(): String = value.processableStack.last().invoke(BlockProcessable(emptyList(), emptyMap(), operatorsMap())).toString()
+    override fun run(): String =
+        value.processableStack.last().invoke(
+            BlockProcessable(
+                processables = emptyList(),
+                variables = mapOf("magicnumber" to ConstVariableDeclaration("magicnumber", Primitive(56))),
+                operators = operatorsMap()
+            )
+        ).toString()
 
     fun intermediate(): String = printInput(output)
 }
@@ -544,7 +551,7 @@ data class FunctionProcessable(
 }
 
 data class BlockProcessable(
-    val processables: List<Processable>,
+    val processables: List<Processable> = emptyList(),
     val variables: Map<String, ConstVariableDeclaration> = emptyMap(),
     val operators: Map<String, Operator> = emptyMap(),
 ) : Processable {
