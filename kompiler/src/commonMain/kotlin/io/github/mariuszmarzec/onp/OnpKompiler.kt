@@ -5,14 +5,14 @@ import io.github.mariuszmarzec.kompiler.AstState
 import io.github.mariuszmarzec.kompiler.FunctionCall
 import io.github.mariuszmarzec.kompiler.FunctionDeclaration
 import io.github.mariuszmarzec.kompiler.Kompiler
-import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.MathOperator
+import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
 import io.github.mariuszmarzec.kompiler.SeparatorOperator
-import io.github.mariuszmarzec.kompiler.VariableDeclaration
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
 import io.github.mariuszmarzec.kompiler.TokenReader
+import io.github.mariuszmarzec.kompiler.VariableDeclaration
 import io.github.mariuszmarzec.kompiler.globalCompileReport
 import io.github.mariuszmarzec.logger.CompileReport
 import io.github.mariuszmarzec.logger.Report
@@ -473,25 +473,32 @@ fun AstOnp.sendCurrentTokenToOutput() {
 
 interface Processable {
 
-    fun invoke(processable: BlockProcessable): Any
+    fun invoke(context: BlockProcessable): Any
 }
 
 data class Primitive(val value: Int) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any = value
+    override fun invoke(context: BlockProcessable): Any = value
 }
 
 data class Expression(val operator: Operator, val left: Processable, val right: Processable) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any {
-        val leftValue = left.invoke(processable)
-        val rightValue = right.invoke(processable)
-        return if (leftValue is Int && rightValue is Int) {
-            runOperation(leftValue, rightValue)
-        } else {
-            "($leftValue ${operator.token} $rightValue)"
-        }
+    override fun invoke(context: BlockProcessable): Any {
+        val leftValue = dispatchVariable(left, context)
+        val rightValue = dispatchVariable(right, context)
+        return runOperation(leftValue, rightValue)
     }
+
+    private fun dispatchVariable(
+        variable: Processable,
+        context: BlockProcessable
+    ): Int =
+        if (variable is Literal) {
+        context.variables[variable.name]?.value?.invoke(context) as? Int
+            ?: throw IllegalStateException("Variable not found or not an integer: ${variable.name}")
+         } else {
+            variable.invoke(context) as? Int ?: throw IllegalStateException("Left operand is not an integer: $variable")
+        }
 
     private fun runOperation(left: Int, right: Int): Any {
         return when (operator.token) {
@@ -508,12 +515,12 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
 
 data class Literal(val name: String) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any = name
+    override fun invoke(context: BlockProcessable): Any = name
 }
 
 data class ConstVariableDeclaration(val name: String, val value: Processable? = null) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any = this
+    override fun invoke(context: BlockProcessable): Any = this
 }
 
 data class FunctionProcessable(
@@ -521,16 +528,16 @@ data class FunctionProcessable(
     val arguments: List<Processable>
 ) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any = when (function) {
-        is FunctionDeclaration.Function1 -> function.function(arguments[0].invoke(processable))
+    override fun invoke(context: BlockProcessable): Any = when (function) {
+        is FunctionDeclaration.Function1 -> function.function(arguments[0].invoke(context))
         is FunctionDeclaration.Function2 -> function.function(
-            arguments[0].invoke(processable),
-            arguments[1].invoke(processable)
+            arguments[0].invoke(context),
+            arguments[1].invoke(context)
         )
 
         is FunctionDeclaration.Function3 -> function.function(
-            arguments[0].invoke(processable), arguments[1].invoke(processable), arguments[2].invoke(
-                processable
+            arguments[0].invoke(context), arguments[1].invoke(context), arguments[2].invoke(
+                context
             )
         )
     }
@@ -542,7 +549,7 @@ data class BlockProcessable(
     val operators: Map<String, Operator> = emptyMap(),
 ) : Processable {
 
-    override fun invoke(processable: BlockProcessable): Any {
+    override fun invoke(context: BlockProcessable): Any {
         var result: Any = Unit
         for (processable in processables) {
             result = processable.invoke(this)
