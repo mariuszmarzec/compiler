@@ -159,9 +159,9 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
                 }
                 makeProcessableNode(token)
             }
-            this
-        }
+            this}
         ast
+
     }
 }
 
@@ -496,17 +496,6 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
         return runOperation(leftValue, rightValue)
     }
 
-    private fun dispatchVariable(
-        variable: Processable,
-        context: BlockProcessable
-    ): Int =
-        if (variable is Literal) {
-        context.variables[variable.name]?.value?.invoke(context) as? Int
-            ?: throw IllegalStateException("Variable not found or not an integer: ${variable.name}")
-         } else {
-            variable.invoke(context) as? Int ?: throw IllegalStateException("Left operand is not an integer: $variable")
-        }
-
     private fun runOperation(left: Int, right: Int): Any {
         return when (operator.token) {
             "+", "plus" -> left + right
@@ -536,16 +525,16 @@ data class FunctionProcessable(
 ) : Processable {
 
     override fun invoke(context: BlockProcessable): Any = when (function) {
-        is FunctionDeclaration.Function1 -> function.function(arguments[0].invoke(context))
+        is FunctionDeclaration.Function1 -> function.function(dispatchVariable(arguments[0], context))
         is FunctionDeclaration.Function2 -> function.function(
-            arguments[0].invoke(context),
-            arguments[1].invoke(context)
+            dispatchVariable(arguments[0], context),
+            dispatchVariable(arguments[1], context),
         )
 
         is FunctionDeclaration.Function3 -> function.function(
-            arguments[0].invoke(context), arguments[1].invoke(context), arguments[2].invoke(
-                context
-            )
+            dispatchVariable(arguments[0], context),
+            dispatchVariable(arguments[1], context),
+            dispatchVariable(arguments[2], context),
         )
     }
 }
@@ -670,3 +659,14 @@ fun AstState<AstOnp>.handleCurrentTokenAsPossibleOperator(tokenHandler: TokenHan
         }
     }
 }
+
+fun dispatchVariable(
+    variable: Processable,
+    context: BlockProcessable
+): Int =
+    if (variable is Literal) {
+        context.variables[variable.name]?.value?.invoke(context) as? Int
+            ?: throw IllegalStateException("Variable not found or not an integer: ${variable.name}")
+    } else {
+        variable.invoke(context) as? Int ?: throw IllegalStateException("Left operand is not an integer: $variable")
+    }
