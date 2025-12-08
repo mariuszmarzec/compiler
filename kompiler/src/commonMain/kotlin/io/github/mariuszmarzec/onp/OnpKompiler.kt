@@ -8,6 +8,7 @@ import io.github.mariuszmarzec.kompiler.Kompiler
 import io.github.mariuszmarzec.kompiler.MathOperator
 import io.github.mariuszmarzec.kompiler.Operator
 import io.github.mariuszmarzec.kompiler.OperatorsTokenHandler
+import io.github.mariuszmarzec.kompiler.Position
 import io.github.mariuszmarzec.kompiler.SeparatorOperator
 import io.github.mariuszmarzec.kompiler.Token
 import io.github.mariuszmarzec.kompiler.TokenHandler
@@ -147,7 +148,7 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
             while (stack.isNotEmpty()) {
                 val token = stack.removeLast()
                 if ((token.operator as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at index ${token.token.index}")
+                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
                 }
                 output.add(token.token)
             }
@@ -155,7 +156,7 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
             while (operatorsStack.isNotEmpty()) {
                 val token = operatorsStack.removeLast()
                 if ((token.operator as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at index ${token.token.index}")
+                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
                 }
                 makeProcessableNode(token)
             }
@@ -240,7 +241,7 @@ class ClosingParenthesisOnpTokenHandler(
         }
         handled.also {
             if (!it) {
-                compileReport.error("Mismatched parentheses at index ${token.index} in expression: $exp")
+                compileReport.error("Mismatched parentheses at position ${token.position} in expression: $exp")
             }
         }
     } else {
@@ -370,7 +371,7 @@ class AssignmentOperatorHandler(
             if (stack.lastOrNull()?.token?.value in listOf("val", "is")) {
                 output.add(stack.removeLast().token)
             } else {
-                report.error("Invalid assignment to variable declaration at index ${token.index} in expression: $exp")
+                report.error("Invalid assignment to variable declaration at position ${token.position} in expression: $exp")
             }
             stack.addLast(element)
 
@@ -378,7 +379,7 @@ class AssignmentOperatorHandler(
             if (operatorsStack.lastOrNull()?.token?.value in listOf("val", "is")) {
                 makeProcessableNode()
             } else {
-                report.error("Invalid assignment to variable declaration at index ${token.index} in expression: $exp")
+                report.error("Invalid assignment to variable declaration at position ${token.position} in expression: $exp")
             }
             operatorsStack.addLast(element)
             this
@@ -399,14 +400,14 @@ class OperatorReader(
 
     override fun readChar(
         exp: String,
-        index: Int,
+        position: Position,
         ch: Char,
         astState: AstState<AstOnp>
     ) {
         astState.handleCurrentTokenAsPossibleOperator(tokenHandler, exp)
 
 
-        val tokenOperator = Token(index, ch.toString(), type = "operator")
+        val tokenOperator = Token(position, ch.toString(), type = "operator")
         astState.update {
             val forShuntingYardToken = currentReadToken
             sendCurrentTokenToOutput()
@@ -418,7 +419,7 @@ class OperatorReader(
         }
 
         if (!tokenHandler.handleToken(tokenOperator, astState, exp)) {
-            compileReport.error("Lacking handling for Token: `${tokenOperator.value}` at index ${tokenOperator.index} in expression: $exp")
+            compileReport.error("Lacking handling for Token: `${tokenOperator.value}` at position ${tokenOperator.position} in expression: $exp")
         }
         astState.update {
             currentReadToken = null
@@ -442,14 +443,14 @@ class LiteralReader() : TokenReader<AstOnp> {
 
     override fun readChar(
         exp: String,
-        index: Int,
+        position: Position,
         ch: Char,
         astState: AstState<AstOnp>
     ) {
         astState.update {
             val readToken = currentReadToken
             currentReadToken =
-                readToken?.copy(value = readToken.value + ch) ?: Token(index, ch.toString(), type = "literal")
+                readToken?.copy(value = readToken.value + ch) ?: Token(position, ch.toString(), type = "literal")
             this
         }
     }
@@ -458,11 +459,11 @@ class LiteralReader() : TokenReader<AstOnp> {
 class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenReader<AstOnp> {
 
     override val allowedCharacters: Set<Char>
-        get() = setOf(' ')
+        get() = setOf(' ', '\n', '\t')
 
     override fun readChar(
         exp: String,
-        index: Int,
+        position: Position,
         ch: Char,
         astState: AstState<AstOnp>
     ) {
@@ -570,7 +571,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
     when (val operator = this@makeProcessableNode) {
         is MathOperator -> {
             if (processableStack.size < 2) {
-                throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at index ${token.index}")
+                throw IllegalStateException("Not enough elements in processable stack to apply operator ${token.value} at position ${token.position}")
             }
             val right = processableStack.removeLast()
             val left = processableStack.removeLast()
@@ -583,7 +584,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             println("Function call for ${token.value} with arguments count ${operator.argumentsCount}")
             repeat(argumentsCount) {
                 if (processableStack.isEmpty()) {
-                    report.error("Not enough elements in processable stack to apply function ${token.value} at index ${token.index}")
+                    report.error("Not enough elements in processable stack to apply function ${token.value} at position ${token.position}")
                 }
                 args.add(processableStack.removeLast())
             }
@@ -592,7 +593,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             if (functionDeclaration != null) {
                 processableStack.addLast(FunctionProcessable(functionDeclaration, args))
             } else {
-                report.error("Function declaration not found for function ${token.value} at index ${token.index}")
+                report.error("Function declaration not found for function ${token.value} at position ${token.position}")
             }
         }
 
@@ -600,19 +601,19 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             if (operatorsStack.last().token.value == "(") {
                 // do nothing, just separator between function arguments
             } else {
-                report.error("Misplaced separator ${token.value} at index ${token.index}, should be inside function call parentheses")
+                report.error("Misplaced separator ${token.value} at position ${token.position}, should be inside function call parentheses")
             }
         }
 
         is VariableDeclaration -> {
             if (processableStack.size < 1) {
-                report.error("Not enough elements in processable stack to apply variable declaration ${token.value} at index ${token.index}")
+                report.error("Not enough elements in processable stack to apply variable declaration ${token.value} at position ${token.position}")
             }
             val processable = processableStack.removeLast()
             val variableName = when (processable) {
                 is Literal -> processable.name
                 else -> {
-                    throw kotlin.IllegalStateException("Invalid variable name for declaration at index ${token.index}, expected literal but got $processable")
+                    throw kotlin.IllegalStateException("Invalid variable name for declaration at position ${token.position}, expected literal but got $processable")
                 }
             }
 
@@ -622,12 +623,12 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
 
         is AssignmentOperator -> {
             if (processableStack.size < 2) {
-                report.error("Not enough elements in processable stack to apply assignment operator ${token.value} at index ${token.index}")
+                report.error("Not enough elements in processable stack to apply assignment operator ${token.value} at position ${token.position}")
             }
             val valueProcessable = processableStack.removeLast()
             val variableProcessable = processableStack.removeLast()
             val declarationProcessable = variableProcessable as? ConstVariableDeclaration
-                ?: throw IllegalStateException("Invalid variable for assignment at index ${token.index}, expected variable declaration but got $variableProcessable")
+                ?: throw IllegalStateException("Invalid variable for assignment at position ${token.position}, expected variable declaration but got $variableProcessable")
 
             val constVariableProcessable = declarationProcessable.copy(value = valueProcessable)
             processableStack.addLast(constVariableProcessable)
@@ -642,7 +643,7 @@ fun AstState<AstOnp>.handleCurrentTokenAsPossibleOperator(tokenHandler: TokenHan
 
         val isToken = !tokenHandler.handleToken(currentReadToken, astState, exp)
             .also {
-                astState.value.report.info("Handling as token '${currentReadToken.value}' at index ${currentReadToken.index} in expression: $exp: $it")
+                astState.value.report.info("Handling as token '${currentReadToken.value}' at position ${currentReadToken.position} in expression: $exp: $it")
             }
         if (isToken) {
             // if not handled, so token is not operator, send to output as it is literal

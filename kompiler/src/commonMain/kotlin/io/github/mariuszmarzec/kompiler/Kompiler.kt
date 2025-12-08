@@ -35,11 +35,17 @@ class Kompiler<AST>(
 
     fun compile(exp: String): AstState<AST> =
         try {
+            var line = 0
             var ast = astBuilder()
             exp.forEachIndexed { index, ch ->
+                val position = Position(index, line, index - exp.lastIndexOf('\n', index - 1) )
                 readers.firstOrNull { it.allowedCharacters.contains(ch) }
-                    ?.readChar(exp, index, ch, ast)
+                    ?.readChar(exp, position, ch, ast)
                     ?: compileReport.error("Unexpected character '$ch' at index $index in expression: $exp")
+
+                if (ch == '\n') {
+                    line++
+                }
             }
             finisher(ast)
         } catch (t: Throwable) {
@@ -49,7 +55,7 @@ class Kompiler<AST>(
 }
 
 data class Token(
-    val index: Int,
+    val position: Position,
     val value: String,
     val type: String
 )
@@ -60,7 +66,7 @@ interface TokenReader<AST> {
 
     fun readChar(
         exp: String,
-        index: Int,
+        position: Position,
         ch: Char,
         ast: AstState<AST>
     )
@@ -148,3 +154,9 @@ sealed class FunctionDeclaration(
         val function: (Any, Any, Any) -> Any
     ) : FunctionDeclaration(call)
 }
+
+data class Position(
+    val index: Int,
+    val line: Int,
+    val column: Int
+)
