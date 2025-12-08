@@ -2,6 +2,7 @@ package io.github.mariuszmarzec.onp
 
 import io.github.mariuszmarzec.kompiler.AssignmentOperator
 import io.github.mariuszmarzec.kompiler.AstState
+import io.github.mariuszmarzec.kompiler.EndOfLineOperator
 import io.github.mariuszmarzec.kompiler.FunctionCall
 import io.github.mariuszmarzec.kompiler.FunctionDeclaration
 import io.github.mariuszmarzec.kompiler.Kompiler
@@ -38,6 +39,7 @@ fun operators(): List<Operator> = listOf(
     FunctionCall("pow2", 3, 1),
     FunctionCall("pow", 3, 1),
     FunctionCall("min3", 3, 3),
+    EndOfLineOperator("\n", Int.MAX_VALUE),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -63,6 +65,7 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "val" to SimpleOperatorHandler(operatorsMap.getValue("val")),
         "=" to AssignmentOperatorHandler(operatorsMap.getValue("=")),
         "is" to AssignmentOperatorHandler(operatorsMap.getValue("is")),
+        "\n" to EndOfLineHandler(operatorsMap.getValue("\n")),
     )
 }
 
@@ -89,7 +92,7 @@ data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     // Shunting Yard specific
-    val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
+    val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>().apply { addLast(BlockProcessable()) },
     var operatorsStack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     val operators: MutableList<Operator> = operators().toMutableList(),
     val operations: MutableMap<String, Operator> = operatorsMap().toMutableMap(),
@@ -110,14 +113,14 @@ data class AstOnp(
     override val value: AstOnp = this
 
     override fun update(action: AstOnp.() -> AstOnp) {
-        println("AST before update: ${this.value.processableStack} ${this.operatorsStack}")
+        println("AST before update: ${this.value.processableStack} operators: ${this.operatorsStack}")
         this.action()
     }
 
     override fun run(): String =
         value.processableStack.last().invoke(
             BlockProcessable(
-                processables = emptyList(),
+                lineProcessables = emptyList(),
                 variables = mapOf("magicnumber" to ConstVariableDeclaration("magicnumber", Primitive(56))),
                 operators = operatorsMap()
             )
@@ -145,24 +148,29 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
                 currentReadToken = null
             }
 
-            while (stack.isNotEmpty()) {
-                val token = stack.removeLast()
-                if ((token.operator as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
-                }
-                output.add(token.token)
-            }
-            // shunting yard specific
-            while (operatorsStack.isNotEmpty()) {
-                val token = operatorsStack.removeLast()
-                if ((token.operator as? MathOperator)?.openClose == true) {
-                    report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
-                }
-                makeProcessableNode(token)
-            }
-            this}
+            flushStacks()
+            this
+        }
         ast
 
+    }
+}
+
+private fun AstOnp.flushStacks() {
+    while (stack.isNotEmpty()) {
+        val token = stack.removeLast()
+        if ((token.operator as? MathOperator)?.openClose == true) {
+            report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
+        }
+        output.add(token.token)
+    }
+    // shunting yard specific
+    while (operatorsStack.isNotEmpty()) {
+        val token = operatorsStack.removeLast()
+        if ((token.operator as? MathOperator)?.openClose == true) {
+            report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
+        }
+        makeProcessableNode(token)
     }
 }
 
@@ -390,6 +398,30 @@ class AssignmentOperatorHandler(
     }
 }
 
+class EndOfLineHandler(override val operator: Operator) : TokenHandler<AstOnp> {
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.token) {
+        val element = OperatorStackEntry(token, operator)
+        astState.update {
+            flushStacks()
+            output.add(token.copy(value = "EOL"))
+
+            // shunting yard specific
+            operatorsStack.addLast(element)
+            makeProcessableNode()
+            println(this)
+            this
+        }
+        true
+    } else {
+        false
+    }
+}
+
 class OperatorReader(
     private val tokenHandler: TokenHandler<AstOnp>,
     private val compileReport: Report
@@ -459,7 +491,7 @@ class LiteralReader() : TokenReader<AstOnp> {
 class WhiteSpaceReader(private val tokenHandler: TokenHandler<AstOnp>) : TokenReader<AstOnp> {
 
     override val allowedCharacters: Set<Char>
-        get() = setOf(' ', '\n', '\t')
+        get() = setOf(' ', '\t')
 
     override fun readChar(
         exp: String,
@@ -512,7 +544,10 @@ data class Expression(val operator: Operator, val left: Processable, val right: 
 
 data class Literal(val name: String) : Processable {
 
-    override fun invoke(context: BlockProcessable): Any = name
+    override fun invoke(context: BlockProcessable): Any {
+        return context.variables[name]?.value?.invoke(context)
+            ?: throw IllegalStateException("Variable not found: $name")
+    }
 }
 
 data class ConstVariableDeclaration(val name: String, val value: Processable? = null) : Processable {
@@ -541,28 +576,42 @@ data class FunctionProcessable(
 }
 
 data class BlockProcessable(
-    val processables: List<Processable> = emptyList(),
+    val lineProcessables: List<Processable> = emptyList(),
     val variables: Map<String, ConstVariableDeclaration> = emptyMap(),
     val operators: Map<String, Operator> = emptyMap(),
 ) : Processable {
 
     override fun invoke(context: BlockProcessable): Any {
         var result: Any = Unit
-        for (processable in processables) {
-            result = processable.invoke(this)
+
+        val blockContext = this.copy(
+            variables = this.variables + context.variables,
+            operators = this.operators + context.operators,
+        )
+
+        for (processable in lineProcessables) {
+            result = processable.invoke(blockContext)
         }
         return result
     }
 
     fun appendProcessable(processable: Processable): BlockProcessable {
-        return this.copy(processables = this.processables + processable)
+        return when (processable) {
+            is ConstVariableDeclaration -> appendVariable(processable)
+            is Operator -> appendOperator(processable)
+            else -> appendLine(processable)
+        }
     }
 
-    fun appendVariable(variable: ConstVariableDeclaration): BlockProcessable {
+    private fun appendLine(processable: Processable): BlockProcessable {
+        return this.copy(lineProcessables = this.lineProcessables + processable)
+    }
+
+    private fun appendVariable(variable: ConstVariableDeclaration): BlockProcessable {
         return this.copy(variables = this.variables + (variable.name to variable))
     }
 
-    fun appendOperator(operator: Operator): BlockProcessable {
+    private fun appendOperator(operator: Operator): BlockProcessable {
         return this.copy(operators = this.operators + (operator.symbol to operator))
     }
 }
@@ -632,6 +681,14 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
 
             val constVariableProcessable = declarationProcessable.copy(value = valueProcessable)
             processableStack.addLast(constVariableProcessable)
+        }
+
+        is EndOfLineOperator -> {
+            println("End of line operator processing at position ${token.position}")
+            val processable = processableStack.removeLast()
+            val blockProcessable = processableStack.removeLast() as? BlockProcessable
+                ?: throw IllegalStateException("Invalid processable for end of line at position ${token.position}, expected block processable but got $processable")
+            processableStack.addLast(blockProcessable.appendProcessable(processable))
         }
     }
 }

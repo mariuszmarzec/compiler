@@ -37,7 +37,8 @@ class Kompiler<AST>(
         try {
             var line = 0
             var ast = astBuilder()
-            exp.forEachIndexed { index, ch ->
+            exp.let { if (exp.last() == '\n') exp else exp + '\n' }
+                .forEachIndexed { index, ch ->
                 val position = Position(index, line, index - exp.lastIndexOf('\n', index - 1) )
                 readers.firstOrNull { it.allowedCharacters.contains(ch) }
                     ?.readChar(exp, position, ch, ast)
@@ -153,6 +154,13 @@ sealed class FunctionDeclaration(
         override val call: FunctionCall,
         val function: (Any, Any, Any) -> Any
     ) : FunctionDeclaration(call)
+}
+
+data class EndOfLineOperator(
+    override val token: String = "\n",
+    override val priority: Int = Int.MAX_VALUE,
+) : Operator {
+    override val symbol: String = token
 }
 
 data class Position(
