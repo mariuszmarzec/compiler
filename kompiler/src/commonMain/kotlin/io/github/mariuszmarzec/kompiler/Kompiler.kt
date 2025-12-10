@@ -2,6 +2,7 @@ package io.github.mariuszmarzec.kompiler
 
 import io.github.mariuszmarzec.logger.CompileReport
 import io.github.mariuszmarzec.logger.Report
+
 val globalCompileReport: CompileReport = CompileReport()
 
 
@@ -116,6 +117,14 @@ data class FunctionCall(
     override val symbol: String = "$token$$argumentsCount"
 }
 
+data class FunctionDeclarationOperator(
+    override val token: String,
+    override val priority: Int,
+    val argumentsCount: Int = 0,
+) : Operator {
+    override val symbol: String = token
+}
+
 data class AssignmentOperator(
     override val token: String,
     override val priority: Int,
@@ -137,16 +146,14 @@ data class VariableDeclaration(
     override val symbol: String = token
 }
 
-data class FunctionDeclarationOperator(
-    override val token: String,
-    override val priority: Int,
-) : Operator {
-    override val symbol: String = token
-}
-
 sealed class FunctionDeclaration(
     open val call: FunctionCall
 ) {
+    data class Function0(
+        override val call: FunctionCall,
+        val function: () -> Any
+    ) : FunctionDeclaration(call)
+
     data class Function1(
         override val call: FunctionCall,
         val function: (Any) -> Any

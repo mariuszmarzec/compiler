@@ -28,6 +28,7 @@ fun operators(): List<Operator> = listOf(
     VariableDeclaration("val", -3),
     SeparatorOperator(",", -2),
     MathOperator("(", -1, openClose = true),
+    MathOperator("(", -1, openClose = true),
     MathOperator("-", 0),
     MathOperator("+", 1),
     MathOperator("plus", 1),
@@ -42,6 +43,7 @@ fun operators(): List<Operator> = listOf(
     FunctionCall("pow", 3, 1),
     FunctionCall("min3", 3, 3),
     EndOfLineOperator("\n", Int.MAX_VALUE),
+    EndOfLineOperator(";", Int.MAX_VALUE),
 )
 
 fun operatorsMap(): Map<String, Operator> = operators().associateBy { it.symbol }
@@ -69,6 +71,7 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "=" to AssignmentOperatorHandler(operatorsMap.getValue("=")),
         "is" to AssignmentOperatorHandler(operatorsMap.getValue("is")),
         "\n" to EndOfLineHandler(operatorsMap.getValue("\n")),
+        ";" to EndOfLineHandler(operatorsMap.getValue(";")),
     )
 }
 
@@ -196,8 +199,15 @@ class OpeningParenthesisOnpTokenHandler(
         exp: String,
     ): Boolean = if (token.value == operator.token) {
         astState.update {
+            if (stack.lastOrNull()?.token?.value == "fun") {
+                output.add(stack.removeLast().token)
+            }
             stack.addLast(OperatorStackEntry(token, operator))
 
+            // shunting yard specific
+            if (operatorsStack.lastOrNull()?.token?.value == "fun") {
+                makeProcessableNode()
+            }
             operatorsStack.addLast(OperatorStackEntry(token, operator))
             this
         }
@@ -229,6 +239,9 @@ class ClosingParenthesisOnpTokenHandler(
             if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
                 output.add(stack.removeLast().token)
             }
+            if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionDeclaration } == true) {
+                output.add(stack.removeLast().token)
+            }
 
             // shunting yard specific
             while (operatorsStack.isNotEmpty() && operatorsStack.last().token.value != "(") {
@@ -245,6 +258,16 @@ class ClosingParenthesisOnpTokenHandler(
                     val funcOperator = funcEntry.operator as FunctionCall
                     val updatedFuncOperator = funcOperator.copy(argumentsCount = funcOperator.argumentsCount + 1)
                     operatorsStack.addLast(OperatorStackEntry(funcEntry.token, updatedFuncOperator))
+                }
+                makeProcessableNode()
+            }
+            if (operatorsStack.lastOrNull()?.operator is FunctionDeclarationOperator) {
+                if (lastToken?.value != ",") {
+                    // if last token is not separator, increase arguments count
+                    val funcDeclarationEntry = operatorsStack.removeLast()
+                    val funcDeclarationOperator = funcDeclarationEntry.operator as FunctionDeclarationOperator
+                    val updatedFuncDeclarationOperator = funcDeclarationOperator.copy(argumentsCount = funcDeclarationOperator.argumentsCount + 1)
+                    operatorsStack.addLast(OperatorStackEntry(funcDeclarationEntry.token, updatedFuncDeclarationOperator))
                 }
                 makeProcessableNode()
             }
@@ -313,6 +336,12 @@ class SeparatorOperatorOnpTokenHandler(
             if (operatorsStack.getOrNull(operatorsStack.lastIndex - 1)?.operator is FunctionCall) {
                 val funcEntry = operatorsStack[operatorsStack.lastIndex - 1]
                 val funcOperator = funcEntry.operator as FunctionCall
+                val updatedFuncOperator = funcOperator.copy(argumentsCount = funcOperator.argumentsCount + 1)
+                operatorsStack[operatorsStack.lastIndex - 1] = OperatorStackEntry(funcEntry.token, updatedFuncOperator)
+            }
+            if (operatorsStack.getOrNull(operatorsStack.lastIndex - 1)?.operator is FunctionDeclarationOperator) {
+                val funcEntry = operatorsStack[operatorsStack.lastIndex - 1]
+                val funcOperator = funcEntry.operator as FunctionDeclarationOperator
                 val updatedFuncOperator = funcOperator.copy(argumentsCount = funcOperator.argumentsCount + 1)
                 operatorsStack[operatorsStack.lastIndex - 1] = OperatorStackEntry(funcEntry.token, updatedFuncOperator)
             }
@@ -558,7 +587,7 @@ data class ConstVariableDeclaration(val name: String, val value: Processable? = 
     override fun invoke(context: BlockProcessable): Any = this
 }
 
-data class FunctionDeclaration(
+data class FunctionDeclarationProcessable(
     val name: String,
     val params: Map<String, Processable> = emptyMap(),
     val bodyProcessable: BlockProcessable = BlockProcessable()) : Processable {
@@ -571,12 +600,13 @@ data class FunctionDeclaration(
     }
 }
 
-data class FunctionProcessable(
+data class FunctionCallProcessable(
     val function: FunctionDeclaration,
     val arguments: List<Processable>
 ) : Processable {
 
     override fun invoke(context: BlockProcessable): Any = when (function) {
+        is FunctionDeclaration.Function0 -> function.function()
         is FunctionDeclaration.Function1 -> function.function(dispatchVariable(arguments[0], context))
         is FunctionDeclaration.Function2 -> function.function(
             dispatchVariable(arguments[0], context),
@@ -656,7 +686,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             args.reverse()
             val functionDeclaration = functionDeclarations[operator]
             if (functionDeclaration != null) {
-                processableStack.addLast(FunctionProcessable(functionDeclaration, args))
+                processableStack.addLast(FunctionCallProcessable(functionDeclaration, args))
             } else {
                 report.error("Function declaration not found for function ${token.value} at position ${token.position}")
             }
@@ -710,7 +740,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
         is FunctionDeclarationOperator -> {
             val literalProcessable = processableStack.removeLast() as? Literal
                 ?: throw IllegalStateException("Invalid function name for declaration at position ${token.position}, expected literal but got $processableStack")
-            processableStack.addLast(FunctionDeclaration(name = literalProcessable.name, params = mutableMapOf()))
+            processableStack.addLast(FunctionDeclarationProcessable(name = literalProcessable.name, params = mutableMapOf()))
         }
     }
 }
