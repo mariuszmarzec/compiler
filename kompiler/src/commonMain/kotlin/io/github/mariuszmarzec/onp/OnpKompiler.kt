@@ -128,7 +128,8 @@ data class AstOnp(
             BlockProcessable(
                 lineProcessables = emptyList(),
                 variables = mapOf("magicnumber" to ConstVariableDeclaration("magicnumber", Primitive(56))),
-                operators = operatorsMap()
+                operators = operations,
+                functionDeclarations = functionDeclarations
             )
         ).toString()
 
@@ -185,7 +186,7 @@ private fun AstOnp.makeProcessableNode() {
 }
 
 private fun AstOnp.makeProcessableNode(token: OperatorStackEntry) {
-    operations[token.operator.symbol]?.makeProcessableNode(this, token.token)
+    token.operator.makeProcessableNode(this, token.token)
 }
 
 // same as simple operator handler
@@ -199,15 +200,8 @@ class OpeningParenthesisOnpTokenHandler(
         exp: String,
     ): Boolean = if (token.value == operator.token) {
         astState.update {
-            if (stack.lastOrNull()?.token?.value == "fun") {
-                output.add(stack.removeLast().token)
-            }
             stack.addLast(OperatorStackEntry(token, operator))
 
-            // shunting yard specific
-            if (operatorsStack.lastOrNull()?.token?.value == "fun") {
-                makeProcessableNode()
-            }
             operatorsStack.addLast(OperatorStackEntry(token, operator))
             this
         }
@@ -239,7 +233,8 @@ class ClosingParenthesisOnpTokenHandler(
             if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
                 output.add(stack.removeLast().token)
             }
-            if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionDeclaration } == true) {
+
+            if (stack.lastOrNull()?.token?.value == "fun") {
                 output.add(stack.removeLast().token)
             }
 
@@ -266,8 +261,14 @@ class ClosingParenthesisOnpTokenHandler(
                     // if last token is not separator, increase arguments count
                     val funcDeclarationEntry = operatorsStack.removeLast()
                     val funcDeclarationOperator = funcDeclarationEntry.operator as FunctionDeclarationOperator
-                    val updatedFuncDeclarationOperator = funcDeclarationOperator.copy(argumentsCount = funcDeclarationOperator.argumentsCount + 1)
-                    operatorsStack.addLast(OperatorStackEntry(funcDeclarationEntry.token, updatedFuncDeclarationOperator))
+                    val updatedFuncDeclarationOperator =
+                        funcDeclarationOperator.copy(argumentsCount = funcDeclarationOperator.argumentsCount + 1)
+                    operatorsStack.addLast(
+                        OperatorStackEntry(
+                            funcDeclarationEntry.token,
+                            updatedFuncDeclarationOperator
+                        )
+                    )
                 }
                 makeProcessableNode()
             }
@@ -589,35 +590,41 @@ data class ConstVariableDeclaration(val name: String, val value: Processable? = 
 
 data class FunctionDeclarationProcessable(
     val name: String,
-    val params: Map<String, Processable> = emptyMap(),
-    val bodyProcessable: BlockProcessable = BlockProcessable()) : Processable {
+    val params: List<String> = listOf(),
+    val bodyProcessable: BlockProcessable = BlockProcessable()
+) : Processable {
 
     override fun invoke(context: BlockProcessable): Any {
         val functionContext = bodyProcessable.copy(
-            variables = bodyProcessable.variables + context.variables + params.mapValues { it.value.invoke(context) as ConstVariableDeclaration }
+            variables = bodyProcessable.variables + context.variables // TODO how to handle params properly
         )
         return bodyProcessable.invoke(functionContext)
     }
 }
 
 data class FunctionCallProcessable(
-    val function: FunctionDeclaration,
+    val call: FunctionCall,
     val arguments: List<Processable>
 ) : Processable {
 
-    override fun invoke(context: BlockProcessable): Any = when (function) {
-        is FunctionDeclaration.Function0 -> function.function()
-        is FunctionDeclaration.Function1 -> function.function(dispatchVariable(arguments[0], context))
-        is FunctionDeclaration.Function2 -> function.function(
-            dispatchVariable(arguments[0], context),
-            dispatchVariable(arguments[1], context),
-        )
+    override fun invoke(context: BlockProcessable): Any {
+        val function = context.functionDeclarations[call]
+        return when (function) {
+            is FunctionDeclaration.Function0 -> function.function()
+            is FunctionDeclaration.Function1 -> function.function(dispatchVariable(arguments[0], context))
+            is FunctionDeclaration.Function2 -> function.function(
+                dispatchVariable(arguments[0], context),
+                dispatchVariable(arguments[1], context),
+            )
 
-        is FunctionDeclaration.Function3 -> function.function(
-            dispatchVariable(arguments[0], context),
-            dispatchVariable(arguments[1], context),
-            dispatchVariable(arguments[2], context),
-        )
+            is FunctionDeclaration.Function3 -> function.function(
+                dispatchVariable(arguments[0], context),
+                dispatchVariable(arguments[1], context),
+                dispatchVariable(arguments[2], context),
+            )
+
+            null -> throw IllegalAccessError("Function not found: ${call.token} with ${call.argumentsCount} arguments")
+        }
     }
 }
 
@@ -625,28 +632,33 @@ data class BlockProcessable(
     val lineProcessables: List<Processable> = emptyList(),
     val variables: Map<String, ConstVariableDeclaration> = emptyMap(),
     val operators: Map<String, Operator> = emptyMap(),
+    val functionDeclarations: Map<Operator, FunctionDeclaration> = emptyMap()
 ) : Processable {
 
     override fun invoke(context: BlockProcessable): Any {
         var result: Any = Unit
 
-        val blockContext = this.copy(
+        var blockContext = this.copy(
             variables = this.variables + context.variables,
             operators = this.operators + context.operators,
         )
 
         for (processable in lineProcessables) {
             result = processable.invoke(blockContext)
+            when (result) {
+                is ConstVariableDeclaration -> {
+                    blockContext = blockContext.appendVariable(result)
+                }
+                is FunctionDeclarationProcessable -> {
+                    blockContext = blockContext.appendFunction(result)
+                }
+            }
         }
         return result
     }
 
     fun appendProcessable(processable: Processable): BlockProcessable {
-        return when (processable) {
-            is ConstVariableDeclaration -> appendVariable(processable)
-            is Operator -> appendOperator(processable)
-            else -> appendLine(processable)
-        }
+        return appendLine(processable)
     }
 
     private fun appendLine(processable: Processable): BlockProcessable {
@@ -657,8 +669,45 @@ data class BlockProcessable(
         return this.copy(variables = this.variables + (variable.name to variable))
     }
 
-    private fun appendOperator(operator: Operator): BlockProcessable {
-        return this.copy(operators = this.operators + (operator.symbol to operator))
+    private fun appendFunction(function: FunctionDeclarationProcessable): BlockProcessable {
+        val new = when (function.params.size) {
+            0 -> FunctionDeclaration.Function0(
+                call = FunctionCall(function.name, priority = 0, argumentsCount = 0),
+                function = {
+                    function.invoke(this)
+                }
+            )
+
+            1 -> FunctionDeclaration.Function1(
+                call = FunctionCall(function.name, priority = 0, argumentsCount = 1),
+                function = { arg1 ->
+                    val funcContext = this.copy(
+                        variables = this.variables + (function.params[0] to ConstVariableDeclaration(function.params[0], Primitive(arg1 as Int)))
+                    )
+                    function.invoke(funcContext)
+                }
+            )
+
+            2 -> FunctionDeclaration.Function2(
+                call = FunctionCall(function.name, priority = 0, argumentsCount = 2),
+                function = { arg1, arg2 ->
+                    val funcContext = this.copy(
+                        variables = this.variables + mapOf(
+                            function.params[0] to ConstVariableDeclaration(function.params[0], Primitive(arg1 as Int)),
+                            function.params[1] to ConstVariableDeclaration(function.params[1], Primitive(arg2 as Int))
+                        )
+                    )
+                    function.invoke(funcContext)
+                }
+            )
+
+            else -> throw IllegalStateException("Function with more than 2 arguments not supported yet: ${function.name} with ${function.params.size} arguments")
+        }
+        val operator = FunctionCall(function.name, priority = 3, argumentsCount = function.params.size)
+        return this.copy(
+            operators = this.operators + (new.call.token to operator),
+            functionDeclarations = functionDeclarations + (operator to new)
+        )
     }
 }
 
@@ -684,17 +733,12 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                 args.add(processableStack.removeLast())
             }
             args.reverse()
-            val functionDeclaration = functionDeclarations[operator]
-            if (functionDeclaration != null) {
-                processableStack.addLast(FunctionCallProcessable(functionDeclaration, args))
-            } else {
-                report.error("Function declaration not found for function ${token.value} at position ${token.position}")
-            }
+            processableStack.addLast(FunctionCallProcessable(operator, args))
         }
 
         is SeparatorOperator -> {
             if (operatorsStack.last().token.value == "(") {
-                // do nothing, just separator between function arguments
+                // do nothing, handled in closing parenthesis
             } else {
                 report.error("Misplaced separator ${token.value} at position ${token.position}, should be inside function call parentheses")
             }
@@ -738,9 +782,25 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
         }
 
         is FunctionDeclarationOperator -> {
+            val params = mutableListOf<String>()
+            if (processableStack.size < operator.argumentsCount + 1) {
+                report.error("Not enough elements in processable stack to apply function declaration ${token.value} at position ${token.position}")
+            }
+            repeat(operator.argumentsCount) {
+                params.add(
+                    (processableStack.removeLast() as? Literal)?.name
+                        ?: throw IllegalStateException("Invalid function parameter name for declaration at position ${token.position}, expected literal but got $processableStack")
+                )
+            }
+
             val literalProcessable = processableStack.removeLast() as? Literal
                 ?: throw IllegalStateException("Invalid function name for declaration at position ${token.position}, expected literal but got $processableStack")
-            processableStack.addLast(FunctionDeclarationProcessable(name = literalProcessable.name, params = mutableMapOf()))
+            processableStack.addLast(
+                FunctionDeclarationProcessable(
+                    name = literalProcessable.name,
+                    params = params
+                )
+            )
         }
     }
 }

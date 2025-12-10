@@ -61,12 +61,22 @@ class KompilerTest {
     fun endOfLine() {
         val astOnp = onpKompiler.compile(
             """
-                val a =1
+                val a = 1
                 val b = a + 1
                 pow(2)
             """.trimIndent()
         ).value
         assertEquals("4", astOnp.run())
+    }
+
+    @Test
+    fun functionDeclaration() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun addOne(x)
+            """.trimIndent()
+        ).value
+        assertEquals("1", astOnp.run())
     }
 
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
