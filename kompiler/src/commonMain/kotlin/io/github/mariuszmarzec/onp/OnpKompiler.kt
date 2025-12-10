@@ -5,6 +5,7 @@ import io.github.mariuszmarzec.kompiler.AstState
 import io.github.mariuszmarzec.kompiler.EndOfLineOperator
 import io.github.mariuszmarzec.kompiler.FunctionCall
 import io.github.mariuszmarzec.kompiler.FunctionDeclaration
+import io.github.mariuszmarzec.kompiler.FunctionDeclarationOperator
 import io.github.mariuszmarzec.kompiler.Kompiler
 import io.github.mariuszmarzec.kompiler.MathOperator
 import io.github.mariuszmarzec.kompiler.Operator
@@ -23,6 +24,7 @@ import kotlin.math.pow
 fun operators(): List<Operator> = listOf(
     AssignmentOperator("=", -4),
     AssignmentOperator("is", -4),
+    FunctionDeclarationOperator("fun", -3),
     VariableDeclaration("val", -3),
     SeparatorOperator(",", -2),
     MathOperator("(", -1, openClose = true),
@@ -63,6 +65,7 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "pow2$1" to FunctionTokenHandler(operatorsMap.getValue("pow2$1")),
         "min3$3" to FunctionTokenHandler(operatorsMap.getValue("min3$3")),
         "val" to SimpleOperatorHandler(operatorsMap.getValue("val")),
+        "fun" to SimpleOperatorHandler(operatorsMap.getValue("fun")),
         "=" to AssignmentOperatorHandler(operatorsMap.getValue("=")),
         "is" to AssignmentOperatorHandler(operatorsMap.getValue("is")),
         "\n" to EndOfLineHandler(operatorsMap.getValue("\n")),
@@ -555,6 +558,19 @@ data class ConstVariableDeclaration(val name: String, val value: Processable? = 
     override fun invoke(context: BlockProcessable): Any = this
 }
 
+data class FunctionDeclaration(
+    val name: String,
+    val params: Map<String, Processable> = emptyMap(),
+    val bodyProcessable: BlockProcessable = BlockProcessable()) : Processable {
+
+    override fun invoke(context: BlockProcessable): Any {
+        val functionContext = bodyProcessable.copy(
+            variables = bodyProcessable.variables + context.variables + params.mapValues { it.value.invoke(context) as ConstVariableDeclaration }
+        )
+        return bodyProcessable.invoke(functionContext)
+    }
+}
+
 data class FunctionProcessable(
     val function: FunctionDeclaration,
     val arguments: List<Processable>
@@ -689,6 +705,12 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             val blockProcessable = processableStack.removeLast() as? BlockProcessable
                 ?: throw IllegalStateException("Invalid processable for end of line at position ${token.position}, expected block processable but got $processable")
             processableStack.addLast(blockProcessable.appendProcessable(processable))
+        }
+
+        is FunctionDeclarationOperator -> {
+            val literalProcessable = processableStack.removeLast() as? Literal
+                ?: throw IllegalStateException("Invalid function name for declaration at position ${token.position}, expected literal but got $processableStack")
+            processableStack.addLast(FunctionDeclaration(name = literalProcessable.name, params = mutableMapOf()))
         }
     }
 }

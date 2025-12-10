@@ -137,6 +137,13 @@ data class VariableDeclaration(
     override val symbol: String = token
 }
 
+data class FunctionDeclarationOperator(
+    override val token: String,
+    override val priority: Int,
+) : Operator {
+    override val symbol: String = token
+}
+
 sealed class FunctionDeclaration(
     open val call: FunctionCall
 ) {
