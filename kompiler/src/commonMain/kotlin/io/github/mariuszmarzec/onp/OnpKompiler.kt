@@ -641,6 +641,7 @@ data class BlockProcessable(
         var blockContext = this.copy(
             variables = this.variables + context.variables,
             operators = this.operators + context.operators,
+            functionDeclarations = this.functionDeclarations + context.functionDeclarations
         )
 
         for (processable in lineProcessables) {
@@ -705,7 +706,7 @@ data class BlockProcessable(
         }
         val operator = FunctionCall(function.name, priority = 3, argumentsCount = function.params.size)
         return this.copy(
-            operators = this.operators + (new.call.token to operator),
+            operators = this.operators + (new.call.symbol to operator),
             functionDeclarations = functionDeclarations + (operator to new)
         )
     }
