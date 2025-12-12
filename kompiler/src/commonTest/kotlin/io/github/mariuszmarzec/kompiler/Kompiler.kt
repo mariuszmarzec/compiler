@@ -92,5 +92,17 @@ class KompilerTest {
         assertEquals("2", astOnp.run())
     }
 
+    @Test
+    fun functionNotAvailableToFix() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun add(a) { a plus 1; }
+                fun add(a, b) { a plus pow(b) - add(0); }
+                add(add(0, 1))
+            """.trimIndent()
+        ).value
+        assertEquals("2", astOnp.run())
+    }
+
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
 }

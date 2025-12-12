@@ -117,7 +117,9 @@ data class AstOnp(
 
     var currentReadToken: Token? = null
         set(value) {
-            field?.let { lastToken = it }
+            if (value == null) {
+                lastToken = field
+            }
             field = value
         }
 
