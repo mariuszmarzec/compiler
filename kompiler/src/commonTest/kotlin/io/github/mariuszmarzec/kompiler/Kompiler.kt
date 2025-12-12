@@ -73,10 +73,23 @@ class KompilerTest {
     fun functionDeclaration() {
         val astOnp = onpKompiler.compile(
             """
-                fun addOne(x)
+                fun addOne(x) { x plus 1; }
+                addOne(0)
             """.trimIndent()
         ).value
         assertEquals("1", astOnp.run())
+    }
+
+    @Test
+    fun functionDeclarationOverload() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun add(a) { a plus 1; }
+                fun add(a, b) { a plus b; }
+                add(add(0, 1))
+            """.trimIndent()
+        ).value
+        assertEquals("2", astOnp.run())
     }
 
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()

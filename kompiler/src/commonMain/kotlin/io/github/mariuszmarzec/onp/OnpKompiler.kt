@@ -2,6 +2,7 @@ package io.github.mariuszmarzec.onp
 
 import io.github.mariuszmarzec.kompiler.AssignmentOperator
 import io.github.mariuszmarzec.kompiler.AstState
+import io.github.mariuszmarzec.kompiler.CodeBlockBracket
 import io.github.mariuszmarzec.kompiler.EndOfLineOperator
 import io.github.mariuszmarzec.kompiler.FunctionCall
 import io.github.mariuszmarzec.kompiler.FunctionDeclaration
@@ -22,6 +23,8 @@ import io.github.mariuszmarzec.logger.Report
 import kotlin.math.pow
 
 fun operators(): List<Operator> = listOf(
+    CodeBlockBracket("{", -6, openClose = true),
+    CodeBlockBracket("}", -5, openClose = true),
     AssignmentOperator("=", -4),
     AssignmentOperator("is", -4),
     FunctionDeclarationOperator("fun", -3),
@@ -72,6 +75,8 @@ fun operatorHandlers(): Map<String, TokenHandler<AstOnp>> {
         "is" to AssignmentOperatorHandler(operatorsMap.getValue("is")),
         "\n" to EndOfLineHandler(operatorsMap.getValue("\n")),
         ";" to EndOfLineHandler(operatorsMap.getValue(";")),
+        "{" to StartOfCodeBlockHandler(operatorsMap.getValue("{")),
+        "}" to EndOfCodeBlockHandler(operatorsMap.getValue("}")),
     )
 }
 
@@ -144,7 +149,7 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 }.toString()
 
 fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
-    val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList())
+    val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList() + LiteralFunctionHandler())
     val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, report), WhiteSpaceReader(tokenHandlers))
     return Kompiler<AstOnp>(handlers, { AstOnp(report = report) }, report) { ast ->
         ast.update {
@@ -163,8 +168,37 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
     }
 }
 
-private fun AstOnp.flushStacks() {
-    while (stack.isNotEmpty()) {
+class LiteralFunctionHandler() : TokenHandler<AstOnp> {
+    override val operator: Operator = FunctionCall("", -1, 0)
+
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean {
+        if (astState.value.lastToken?.value in listOf("fun", "val")) {
+            return false
+        }
+        val isLiteralFunction = astState.value.processableStack.any {
+            (it as? BlockProcessable)?.operators?.values?.any { it.token == token.value } == true
+        }
+        return if (isLiteralFunction) {
+            val element = OperatorStackEntry(token, FunctionCall(token.value, priority = 3, argumentsCount = 0))
+            astState.update {
+                stack.addLast(element)
+
+                astState.value.operatorsStack.addLast(element)
+                this
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+private fun AstOnp.flushStacks(tillOperator: Set<String> = emptySet()) {
+    while (stack.isNotEmpty() && (tillOperator.isEmpty() || !tillOperator.contains(stack.last().operator.token))) {
         val token = stack.removeLast()
         if ((token.operator as? MathOperator)?.openClose == true) {
             report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
@@ -172,7 +206,7 @@ private fun AstOnp.flushStacks() {
         output.add(token.token)
     }
     // shunting yard specific
-    while (operatorsStack.isNotEmpty()) {
+    while (operatorsStack.isNotEmpty() && (tillOperator.isEmpty() || !tillOperator.contains(operatorsStack.last().operator.token))) {
         val token = operatorsStack.removeLast()
         if ((token.operator as? MathOperator)?.openClose == true) {
             report.error("Mismatched open close operator in expression: operator ${token.token.value} at position ${token.token.position}")
@@ -246,6 +280,7 @@ class ClosingParenthesisOnpTokenHandler(
                 operatorsStack.removeLast() // Remove the '('
                 handled = true
             }
+
             if (operatorsStack.lastOrNull()?.operator is FunctionCall) {
                 if (lastToken?.value != ",") {
                     // if last token is not separator, increase arguments count
@@ -279,6 +314,70 @@ class ClosingParenthesisOnpTokenHandler(
                 compileReport.error("Mismatched parentheses at position ${token.position} in expression: $exp")
             }
         }
+    } else {
+        false
+    }
+}
+
+class EndOfCodeBlockHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String
+    ): Boolean = if (token.value == operator.token) {
+        var handled = false
+        astState.update {
+            while (stack.isNotEmpty() && stack.last().token.value != "{") {
+                output.add(stack.removeLast().token)
+            }
+            if (stack.isNotEmpty() && stack.last().token.value == "{") {
+                stack.removeLast() // Remove the '('
+                handled = true
+            }
+
+            // shunting yard specific
+            while (operatorsStack.isNotEmpty() && operatorsStack.last().token.value != "{") {
+                makeProcessableNode()
+            }
+            if (operatorsStack.isNotEmpty() && operatorsStack.last().token.value == "{") {
+                operatorsStack.removeLast() // Remove the '{'
+                operatorsStack.addLast(OperatorStackEntry(token, operator))
+                makeProcessableNode()
+                handled = true
+            }
+            this
+        }
+        handled.also {
+            if (!it) {
+                astState.value.report.error("Mismatched parentheses at position ${token.position} in expression: $exp")
+            }
+        }
+    } else {
+        false
+    }
+
+
+}
+
+class StartOfCodeBlockHandler(
+    override val operator: Operator,
+) : TokenHandler<AstOnp> {
+    override fun handleToken(
+        token: Token,
+        astState: AstState<AstOnp>,
+        exp: String,
+    ): Boolean = if (token.value == operator.token) {
+        val element = OperatorStackEntry(token, operator)
+        astState.update {
+            stack.addLast(element)
+
+            operatorsStack.addLast(element)
+            makeProcessableNode(element)
+            this
+        }
+        true
     } else {
         false
     }
@@ -440,13 +539,12 @@ class EndOfLineHandler(override val operator: Operator) : TokenHandler<AstOnp> {
     ): Boolean = if (token.value == operator.token) {
         val element = OperatorStackEntry(token, operator)
         astState.update {
-            flushStacks()
+            flushStacks(tillOperator = setOf("{"))
             output.add(token.copy(value = "EOL"))
 
             // shunting yard specific
             operatorsStack.addLast(element)
             makeProcessableNode()
-            println(this)
             this
         }
         true
@@ -650,6 +748,7 @@ data class BlockProcessable(
                 is ConstVariableDeclaration -> {
                     blockContext = blockContext.appendVariable(result)
                 }
+
                 is FunctionDeclarationProcessable -> {
                     blockContext = blockContext.appendFunction(result)
                 }
@@ -670,7 +769,7 @@ data class BlockProcessable(
         return this.copy(variables = this.variables + (variable.name to variable))
     }
 
-    private fun appendFunction(function: FunctionDeclarationProcessable): BlockProcessable {
+    fun appendFunction(function: FunctionDeclarationProcessable): BlockProcessable {
         val new = when (function.params.size) {
             0 -> FunctionDeclaration.Function0(
                 call = FunctionCall(function.name, priority = 0, argumentsCount = 0),
@@ -683,7 +782,10 @@ data class BlockProcessable(
                 call = FunctionCall(function.name, priority = 0, argumentsCount = 1),
                 function = { arg1 ->
                     val funcContext = this.copy(
-                        variables = this.variables + (function.params[0] to ConstVariableDeclaration(function.params[0], Primitive(arg1 as Int)))
+                        variables = this.variables + (function.params[0] to ConstVariableDeclaration(
+                            function.params[0],
+                            Primitive(arg1 as Int)
+                        ))
                     )
                     function.invoke(funcContext)
                 }
@@ -713,6 +815,7 @@ data class BlockProcessable(
 }
 
 fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
+    println("Making processable node for operator ${token.value} at position ${token.position}")
     when (val operator = this@makeProcessableNode) {
         is MathOperator -> {
             if (processableStack.size < 2) {
@@ -776,9 +879,14 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
 
         is EndOfLineOperator -> {
             println("End of line operator processing at position ${token.position}")
+            if (processableStack.size < 2) {
+                return@with
+            }
             val processable = processableStack.removeLast()
-            val blockProcessable = processableStack.removeLast() as? BlockProcessable
-                ?: throw IllegalStateException("Invalid processable for end of line at position ${token.position}, expected block processable but got $processable")
+            val blockProcessable = processableStack.removeLast().let {
+              it as? BlockProcessable
+                  ?: throw IllegalStateException("Invalid processable for end of line at position ${token.position}, expected block processable but got $it")
+            }
             processableStack.addLast(blockProcessable.appendProcessable(processable))
         }
 
@@ -799,9 +907,35 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
             processableStack.addLast(
                 FunctionDeclarationProcessable(
                     name = literalProcessable.name,
-                    params = params
+                    params = params,
                 )
             )
+        }
+
+        is CodeBlockBracket -> {
+            if (operator.token == "{") {
+                processableStack.addLast(BlockProcessable())
+            } else {
+                if (processableStack.size < 2) {
+                    report.error("Not enough elements in processable stack to apply code block at position ${token.position}")
+                }
+                val blockProcessable = processableStack.removeLast().let {
+                    it as? BlockProcessable
+                        ?: throw IllegalStateException("Invalid function body for declaration at position ${token.position}, expected block processable but got $it")
+                }
+
+                val functionDeclarationProcessable = processableStack.removeLast().let {
+                    it as? FunctionDeclarationProcessable
+                        ?: throw IllegalStateException("Invalid function for declaration at position ${token.position}, expected function declaration processable but got $it")
+                }.copy(bodyProcessable = blockProcessable)
+
+                val rootProcessable = processableStack.removeLast().let {
+                    it as? BlockProcessable
+                        ?: throw IllegalStateException("Invalid function body for declaration at position ${token.position}, expected block processable but got $it")
+                }.appendFunction(functionDeclarationProcessable)
+
+                processableStack.addLast(rootProcessable)
+            }
         }
     }
 }

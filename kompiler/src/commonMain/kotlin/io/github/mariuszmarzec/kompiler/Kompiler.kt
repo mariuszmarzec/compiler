@@ -146,6 +146,14 @@ data class VariableDeclaration(
     override val symbol: String = token
 }
 
+data class CodeBlockBracket(
+    override val token: String,
+    override val priority: Int,
+    val openClose: Boolean = false,
+) : Operator {
+    override val symbol: String = token
+}
+
 sealed class FunctionDeclaration(
     open val call: FunctionCall
 ) {
