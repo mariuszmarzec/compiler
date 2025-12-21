@@ -528,8 +528,10 @@ class EndOfLineHandler(override val operator: Operator) : TokenHandler<AstOnp> {
             output.add(token.copy(value = "EOL"))
 
             // shunting yard specific
-            operatorsStack.addLast(element)
-            makeProcessableNode()
+            if (lastToken?.value !in listOf("{")) {
+                operatorsStack.addLast(element)
+                makeProcessableNode()
+            }
             this
         }
         true

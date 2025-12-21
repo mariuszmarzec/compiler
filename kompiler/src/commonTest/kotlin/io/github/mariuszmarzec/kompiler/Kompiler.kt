@@ -127,5 +127,19 @@ class KompilerTest {
         assertEquals("1", astOnp.run())
     }
 
+    @Test
+    fun multilineFunctions() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun foo() { 
+                    val a = 2
+                    a
+                }
+                foo()
+            """.trimIndent()
+        ).value
+        assertEquals("2", astOnp.run())
+    }
+
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
 }
