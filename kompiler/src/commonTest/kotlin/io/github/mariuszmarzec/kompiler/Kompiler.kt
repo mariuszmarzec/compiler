@@ -120,7 +120,7 @@ class KompilerTest {
     fun noParamsFunction() {
         val astOnp = onpKompiler.compile(
             """
-                fun foo(x) { 1; }
+                fun foo() { 1; }
                 foo()
             """.trimIndent()
         ).value

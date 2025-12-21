@@ -267,7 +267,7 @@ class ClosingParenthesisOnpTokenHandler(
             }
 
             if (operatorsStack.lastOrNull()?.operator is FunctionCall) {
-                if (lastToken?.value != ",") {
+                if (lastToken?.value !in listOf(",", "(")) {
                     // if last token is not separator, increase arguments count
                     val funcEntry = operatorsStack.removeLast()
                     val funcOperator = funcEntry.operator as FunctionCall
@@ -277,7 +277,7 @@ class ClosingParenthesisOnpTokenHandler(
                 makeProcessableNode()
             }
             if (operatorsStack.lastOrNull()?.operator is FunctionDeclarationOperator) {
-                if (lastToken?.value != ",") {
+                if (lastToken?.value !in listOf(",", "(")) {
                     // if last token is not separator, increase arguments count
                     val funcDeclarationEntry = operatorsStack.removeLast()
                     val funcDeclarationOperator = funcDeclarationEntry.operator as FunctionDeclarationOperator
