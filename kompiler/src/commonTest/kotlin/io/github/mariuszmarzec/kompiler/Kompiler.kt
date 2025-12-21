@@ -93,7 +93,7 @@ class KompilerTest {
     }
 
     @Test
-    fun functionNotAvailableToFix() {
+    fun functionOverloadingDeclaration() {
         val astOnp = onpKompiler.compile(
             """
                 fun add(a) { a plus 1; }
