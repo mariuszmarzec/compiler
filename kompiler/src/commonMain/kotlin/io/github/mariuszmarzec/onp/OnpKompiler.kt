@@ -103,7 +103,7 @@ data class AstOnp(
     val output: MutableList<Token> = mutableListOf<Token>(),
     val stack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     // Shunting Yard specific
-    val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>().apply { addLast(BlockProcessable()) },
+    val processableStack: ArrayDeque<Processable> = ArrayDeque<Processable>(),
     var operatorsStack: ArrayDeque<OperatorStackEntry> = ArrayDeque(),
     val operators: MutableList<Operator> = operators().toMutableList(),
     val operations: MutableMap<String, Operator> = operatorsMap().toMutableMap(),
@@ -111,6 +111,15 @@ data class AstOnp(
     val report: Report,
 ) : AstState<AstOnp> {
 
+    init {
+        processableStack.addLast(
+            BlockProcessable(
+                variables = mapOf("magicnumber" to ConstVariableDeclaration("magicnumber", Primitive(56))),
+                operators = operations,
+                functionDeclarations = functionDeclarations
+            )
+        )
+    }
 
     // common
     var lastToken: Token? = null
@@ -131,14 +140,7 @@ data class AstOnp(
     }
 
     override fun run(): String =
-        value.processableStack.last().invoke(
-            BlockProcessable(
-                lineProcessables = emptyList(),
-                variables = mapOf("magicnumber" to ConstVariableDeclaration("magicnumber", Primitive(56))),
-                operators = operations,
-                functionDeclarations = functionDeclarations
-            )
-        ).toString()
+        value.processableStack.last().invoke(BlockProcessable()).toString()
 
     fun intermediate(): String = printInput(output)
 }
@@ -266,7 +268,7 @@ class ClosingParenthesisOnpTokenHandler(
                 stack.removeLast() // Remove the '('
                 handled = true
             }
-            if (stack.lastOrNull()?.token?.value?.let { operations[it] is FunctionCall } == true) {
+            if (stack.lastOrNull()?.operator is FunctionCall == true) {
                 output.add(stack.removeLast().token)
             }
 
@@ -395,7 +397,7 @@ class RegularOperatorOnpTokenHandler(
         exp: String,
     ): Boolean = if (token.value == operator.token) {
         astState.update {
-            while (stack.isNotEmpty() && operator.priority <= operations.getValue(stack.last().token.value).priority) {
+            while (stack.isNotEmpty() && operator.priority <= stack.last().operator.priority) {
                 val element = stack.removeLast()
                 output.add(element.token)
             }
@@ -403,7 +405,7 @@ class RegularOperatorOnpTokenHandler(
             currentReadToken = null
             this
 
-            while (operatorsStack.isNotEmpty() && operator.priority <= operations.getValue(operatorsStack.last().token.value).priority) {
+            while (operatorsStack.isNotEmpty() && operator.priority <= operatorsStack.last().operator.priority) {
                 makeProcessableNode()
             }
             operatorsStack.addLast(OperatorStackEntry(token, operator))
