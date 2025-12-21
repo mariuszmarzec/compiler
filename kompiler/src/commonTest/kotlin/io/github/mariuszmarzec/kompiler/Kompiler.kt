@@ -101,7 +101,7 @@ class KompilerTest {
                 add(add(0, 1))
             """.trimIndent()
         ).value
-        assertEquals("2", astOnp.run())
+        assertEquals("1", astOnp.run())
     }
 
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()

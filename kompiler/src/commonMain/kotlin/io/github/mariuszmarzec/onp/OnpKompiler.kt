@@ -698,7 +698,9 @@ data class FunctionDeclarationProcessable(
 
     override fun invoke(context: BlockProcessable): Any {
         val functionContext = bodyProcessable.copy(
-            variables = bodyProcessable.variables + context.variables // TODO how to handle params properly
+            variables = bodyProcessable.variables + context.variables,
+            operators = bodyProcessable.operators + context.operators,
+            functionDeclarations = bodyProcessable.functionDeclarations + context.functionDeclarations,
         )
         return bodyProcessable.invoke(functionContext)
     }
