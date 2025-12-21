@@ -153,7 +153,7 @@ private fun printInput(input: MutableList<Token>): String = input.fold(StringBui
 }.toString()
 
 fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
-    val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList() + LiteralFunctionHandler())
+    val tokenHandlers = OperatorsTokenHandler<AstOnp>(operatorHandlers().values.toList())
     val handlers = listOf(LiteralReader(), OperatorReader(tokenHandlers, report), WhiteSpaceReader(tokenHandlers))
     return Kompiler<AstOnp>(handlers, { AstOnp(report = report) }, report) { ast ->
         ast.update {
@@ -169,35 +169,6 @@ fun onpKompiler(report: Report = globalCompileReport): Kompiler<AstOnp> {
         }
         ast
 
-    }
-}
-
-class LiteralFunctionHandler() : TokenHandler<AstOnp> {
-    override val operator: Operator = FunctionCall("", -1, 0)
-
-    override fun handleToken(
-        token: Token,
-        astState: AstState<AstOnp>,
-        exp: String,
-    ): Boolean {
-        if (astState.value.lastToken?.value in listOf("fun", "val")) {
-            return false
-        }
-        val isLiteralFunction = astState.value.processableStack.any {
-            (it as? BlockProcessable)?.operators?.values?.any { it.token == token.value } == true
-        }
-        return if (isLiteralFunction) {
-            val element = OperatorStackEntry(token, FunctionCall(token.value, priority = 3, argumentsCount = 0))
-            astState.update {
-                stack.addLast(element)
-
-                astState.value.operatorsStack.addLast(element)
-                this
-            }
-            true
-        } else {
-            false
-        }
     }
 }
 
@@ -238,6 +209,16 @@ class OpeningParenthesisOnpTokenHandler(
         exp: String,
     ): Boolean = if (token.value == operator.token) {
         astState.update {
+            val lastReadToken = lastToken
+            if (lastReadToken?.type == "literal" && (processableStack.lastOrNull() as? Literal)?.name == lastReadToken?.value &&
+                operatorsStack.lastOrNull()?.operator !is FunctionDeclarationOperator) {
+                val element = OperatorStackEntry(lastReadToken, FunctionCall(lastReadToken.value, priority = 3, argumentsCount = 0))
+                stack.addLast(element)
+
+                processableStack.removeLast()
+                operatorsStack.addLast(element)
+            }
+
             stack.addLast(OperatorStackEntry(token, operator))
 
             operatorsStack.addLast(OperatorStackEntry(token, operator))
@@ -749,14 +730,16 @@ data class BlockProcessable(
         )
 
         for (processable in lineProcessables) {
-            result = processable.invoke(blockContext)
-            when (result) {
+            when (processable) {
                 is ConstVariableDeclaration -> {
-                    blockContext = blockContext.appendVariable(result)
+                    blockContext = blockContext.appendVariable(processable)
                 }
 
                 is FunctionDeclarationProcessable -> {
-                    blockContext = blockContext.appendFunction(result)
+                    blockContext = blockContext.appendFunction(processable, blockContext)
+                }
+                else -> {
+                    result = processable.invoke(blockContext)
                 }
             }
         }
@@ -775,19 +758,19 @@ data class BlockProcessable(
         return this.copy(variables = this.variables + (variable.name to variable))
     }
 
-    fun appendFunction(function: FunctionDeclarationProcessable): BlockProcessable {
+    private fun appendFunction(function: FunctionDeclarationProcessable, blockContext: BlockProcessable): BlockProcessable {
         val new = when (function.params.size) {
             0 -> FunctionDeclaration.Function0(
                 call = FunctionCall(function.name, priority = 0, argumentsCount = 0),
                 function = {
-                    function.invoke(this)
+                    function.invoke(blockContext)
                 }
             )
 
             1 -> FunctionDeclaration.Function1(
                 call = FunctionCall(function.name, priority = 0, argumentsCount = 1),
                 function = { arg1 ->
-                    val funcContext = this.copy(
+                    val funcContext = blockContext.copy(
                         variables = this.variables + (function.params[0] to ConstVariableDeclaration(
                             function.params[0],
                             Primitive(arg1 as Int)
@@ -800,7 +783,7 @@ data class BlockProcessable(
             2 -> FunctionDeclaration.Function2(
                 call = FunctionCall(function.name, priority = 0, argumentsCount = 2),
                 function = { arg1, arg2 ->
-                    val funcContext = this.copy(
+                    val funcContext = blockContext.copy(
                         variables = this.variables + mapOf(
                             function.params[0] to ConstVariableDeclaration(function.params[0], Primitive(arg1 as Int)),
                             function.params[1] to ConstVariableDeclaration(function.params[1], Primitive(arg2 as Int))
@@ -813,9 +796,9 @@ data class BlockProcessable(
             else -> throw IllegalStateException("Function with more than 2 arguments not supported yet: ${function.name} with ${function.params.size} arguments")
         }
         val operator = FunctionCall(function.name, priority = 3, argumentsCount = function.params.size)
-        return this.copy(
-            operators = this.operators + (new.call.symbol to operator),
-            functionDeclarations = functionDeclarations + (operator to new)
+        return blockContext.copy(
+            operators = blockContext.operators + (new.call.symbol to operator),
+            functionDeclarations = blockContext.functionDeclarations + (operator to new)
         )
     }
 }
@@ -938,7 +921,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                 val rootProcessable = processableStack.removeLast().let {
                     it as? BlockProcessable
                         ?: throw IllegalStateException("Invalid function body for declaration at position ${token.position}, expected block processable but got $it")
-                }.appendFunction(functionDeclarationProcessable)
+                }.appendProcessable(functionDeclarationProcessable)
 
                 processableStack.addLast(rootProcessable)
             }

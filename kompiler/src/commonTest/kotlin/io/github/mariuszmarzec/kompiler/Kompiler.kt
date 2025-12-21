@@ -104,5 +104,28 @@ class KompilerTest {
         assertEquals("1", astOnp.run())
     }
 
+    @Test
+    fun globalConst() {
+        val astOnp = onpKompiler.compile(
+            """
+                val INC is 1;
+                fun increment(x) { x plus INC; }
+                increment(1)
+            """.trimIndent()
+        ).value
+        assertEquals("2", astOnp.run())
+    }
+
+    @Test
+    fun noParamsFunction() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun foo(x) { 1; }
+                foo()
+            """.trimIndent()
+        ).value
+        assertEquals("1", astOnp.run())
+    }
+
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
 }
