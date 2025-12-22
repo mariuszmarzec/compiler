@@ -1,13 +1,18 @@
 # Kompiler
 
 Simple kompiler framework for building compilers and interpreters. 
-Example project include ONP (Reverse Polish Notation) interpreter.
+Example project kompiler based on ONP and Shunting Yard algorithm.
 
-```kotlin
-    val onpKompiler = onpKompiler()
+Project is experimental, low quality code, just built for fun.
 
-    @Test
-    fun onpTest() {
-        assertEquals("12 varA b c * d e / + * plus", onpKompiler.compile("12 plus arA * (b * c + d / e)"))
-    }
-```
+Implemented simple programming language compiler with below listed features:
+* One primitive type Integer
+* declaring const
+* declaring methods with overloading
+* support nested functions
+* basic math operation
+* global functions and constants
+
+<video width="320" controls>
+  <source src="resources/video.mp4" type="video/mp4">
+</video>
