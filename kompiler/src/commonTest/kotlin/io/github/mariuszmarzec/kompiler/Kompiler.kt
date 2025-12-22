@@ -141,5 +141,22 @@ class KompilerTest {
         assertEquals("2", astOnp.run())
     }
 
+    @Test
+    fun nestedFunction() {
+        val astOnp = onpKompiler.compile(
+            """
+                fun foo() {
+                    fun nested() {
+                        3
+                    }
+                    val a = nested()
+                    a
+                }
+                foo()
+            """.trimIndent()
+        ).value
+        assertEquals("3", astOnp.run())
+    }
+
     private fun call(exp: String): String = onpKompiler.compile(exp).value.intermediate()
 }

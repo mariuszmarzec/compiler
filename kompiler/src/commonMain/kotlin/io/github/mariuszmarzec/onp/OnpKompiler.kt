@@ -135,7 +135,11 @@ data class AstOnp(
     override val value: AstOnp = this
 
     override fun update(action: AstOnp.() -> AstOnp) {
-        println("AST before update: ${this.value.processableStack} operators: ${this.operatorsStack}")
+        println("AST before update")
+        val map = this.value.processableStack.map { it: Processable -> it::class.simpleName }
+        println("processables: $map")
+        println("operators   : ${this.operatorsStack}")
+        println("-------------------")
         this.action()
     }
 
@@ -920,12 +924,7 @@ fun Operator.makeProcessableNode(ast: AstOnp, token: Token) = with(ast) {
                         ?: throw IllegalStateException("Invalid function for declaration at position ${token.position}, expected function declaration processable but got $it")
                 }.copy(bodyProcessable = blockProcessable)
 
-                val rootProcessable = processableStack.removeLast().let {
-                    it as? BlockProcessable
-                        ?: throw IllegalStateException("Invalid function body for declaration at position ${token.position}, expected block processable but got $it")
-                }.appendProcessable(functionDeclarationProcessable)
-
-                processableStack.addLast(rootProcessable)
+                processableStack.addLast(functionDeclarationProcessable)
             }
         }
     }
