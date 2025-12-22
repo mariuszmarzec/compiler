@@ -13,6 +13,4 @@ Implemented simple programming language compiler with below listed features:
 * basic math operation
 * global functions and constants
 
-<video width="320" controls>
-  <source src="resources/video.mp4" type="video/mp4">
-</video>
+![video](https://github.com/user-attachments/assets/da48adf1-4ce6-4ec9-a683-702a67abf8f6)
